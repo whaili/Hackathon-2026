@@ -21,6 +21,7 @@
 - [`mystery-sound-archive.md`](./mystery-sound-archive.md) ——《谜声档案》，语音审讯式剧情推理
 - [`soundwave-racing.md`](./soundwave-racing.md) ——《声浪竞速》，用音量、音高和静音控制载具竞速
 - [`starship-mystery-cloud-voice-bureau.md`](./starship-mystery-cloud-voice-bureau.md) ——《星舰疑云：语音局》，真人与 AI 共同参与的语音身份推理
+- [`evaluation.md`](./evaluation.md) ——统一评分标准、第一轮综合评估和团队竞价表
 
 以上方案尚未完成统一评审和排序；旧调研文档中的“主推/备选”是新增 Ideas 提交前的阶段性结论，不代表最终选型。
 
