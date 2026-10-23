@@ -17,6 +17,7 @@
 - [`human-code.md`](./human-code.md) ——《人类暗号》，综合调研（[docs/product-research.md](../docs/product-research.md)
   第三轮结论 + [docs/product-research-review.md](../docs/product-research-review.md) 第 5 节）提取，当前排名第一
 - [`blind-factory.md`](./blind-factory.md) ——《盲区工厂》，同上来源第 6 节，当前排名第二
+- [`dont-let-it-hear.md`](./dont-let-it-hear.md) ——《别让它听见》，语音协作、禁语和会偷听的 AI 动态对手
 
 调研过程和排除掉的其他方向（狼人杀类、套话风暴、测谎真心话等），见 `docs/product-research.md`
 和 `docs/product-research-review.md`，不在此重复。
