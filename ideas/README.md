@@ -15,9 +15,14 @@
 ## 当前已有提交
 
 - [`human-code.md`](./human-code.md) ——《人类暗号》，综合调研（[docs/product-research.md](../docs/product-research.md)
-  第三轮结论 + [docs/product-research-review.md](../docs/product-research-review.md) 第 5 节）提取，当前排名第一
-- [`blind-factory.md`](./blind-factory.md) ——《盲区工厂》，同上来源第 6 节，当前排名第二
+  第三轮结论 + [docs/product-research-review.md](../docs/product-research-review.md) 第 5 节）提取
+- [`blind-factory.md`](./blind-factory.md) ——《盲区工厂》，同上来源第 6 节
 - [`dont-let-it-hear.md`](./dont-let-it-hear.md) ——《别让它听见》，语音协作、禁语和会偷听的 AI 动态对手
+- [`mystery-sound-archive.md`](./mystery-sound-archive.md) ——《谜声档案》，语音审讯式剧情推理
+- [`soundwave-racing.md`](./soundwave-racing.md) ——《声浪竞速》，用音量、音高和静音控制载具竞速
+- [`starship-mystery-cloud-voice-bureau.md`](./starship-mystery-cloud-voice-bureau.md) ——《星舰疑云：语音局》，真人与 AI 共同参与的语音身份推理
+
+以上方案尚未完成统一评审和排序；旧调研文档中的“主推/备选”是新增 Ideas 提交前的阶段性结论，不代表最终选型。
 
 调研过程和排除掉的其他方向（狼人杀类、套话风暴、测谎真心话等），见 `docs/product-research.md`
 和 `docs/product-research-review.md`，不在此重复。

@@ -2,7 +2,7 @@
 
 > 来源：综合提取自 [docs/product-research.md](../docs/product-research.md)（第三轮结论）和
 > [docs/product-research-review.md](../docs/product-research-review.md)（第 6 节，Codex 独立调研的
-> 原始设计）。当前排名第二，作为《人类暗号》的备选方向。
+> 原始设计）。这是新增团队 Ideas 前的阶段性备选，不代表最终排名。
 
 ## 一句话简介
 
