@@ -1,7 +1,8 @@
 # 项目介绍
 
 > 面向任何接手此项目的人或 Code Agent 的入口文档。读完这份后，技术细节看
-> [tech-research.md](./tech-research.md)，产品方向细节看 [product-research.md](./product-research.md)。
+> [tech-research.md](./tech-research.md)，产品候选和评估看 [../ideas/README.md](../ideas/README.md) 与
+> [../ideas/evaluation.md](../ideas/evaluation.md)。
 
 ## 这是什么项目
 
@@ -28,8 +29,8 @@
   具体玩法
 - 团队偏好：优先不强制需要硬件的项目；差异化 > 单纯炫技；工期可控 > 规则完整度（1-3 人、3 天 2 夜）
 
-已有候选方案及其完整提案见 [../ideas/README.md](../ideas/README.md)。此前调研推荐的《人类暗号》和《盲区工厂》仍记录在
-[product-research.md](./product-research.md)，但新增团队提案后需要重新综合评估。
+已有候选方案及其完整提案见 [../ideas/README.md](../ideas/README.md)，统一评估见
+[../ideas/evaluation.md](../ideas/evaluation.md)。
 
 ## 曾评估后放弃的方向
 
@@ -42,13 +43,11 @@
 
 - [x] 产品大方向确定：基于灵矽开发语音类游戏
 - [x] 灵矽平台能力调研（见 tech-research.md）
-- [x] 完成第一阶段市场调研与产品选型（见 product-research.md 和 product-research-review.md）；旧阶段性结论为
-      主推 **《人类暗号》**、备选《盲区工厂》，新增团队 Ideas 后需重新评审
+- [x] 完成第一阶段市场调研与候选方案收集；统一评估见 [../ideas/evaluation.md](../ideas/evaluation.md)
 - [x] 免硬件开发路径验证（控制台 MAC 预注册 + client-demo 编译运行，OTA 认证打通，见 tech-research.md）
-- [x] 团队候选 Ideas 收集：目前共 6 个方案，见 [../ideas/README.md](../ideas/README.md)
+- [x] 团队候选 Ideas 收集：目前共 8 个方案，见 [../ideas/README.md](../ideas/README.md)
 - [ ] 综合评审候选 Ideas，确定最终产品方向
-- [ ] **纸面验证候选方案**：先对入选候选各做低成本试玩；《人类暗号》可按
-      [product-research.md](./product-research.md) 第三轮的方法，用聊天大模型扮演 AI 对手进行验证
+- [ ] **纸面验证候选方案**：对评估前两名各做低成本试玩，验证趣味性、公平性和语音必要性
 - [ ] 完整语音往返验证（目前只验证到 OTA 认证；《人类暗号》同屋模式只需单会话，不依赖多路并发）
 - [ ] 具体游戏 prompt / 状态机设计
 - [ ] 客户端开发（建议自建网页端，而非依赖官方 demo 代码或小程序方案，原因见 tech-research.md）
@@ -56,10 +55,11 @@
 
 ## 协作说明
 
-本项目的文档拆成三份，任何接手的人或 Code Agent 建议按顺序读：
+本项目的文档分为技术调研、候选方案和评估记录，任何接手的人或 Code Agent 建议按顺序读：
 
 1. `docs/project-overview.md`（本文件）——项目背景、约束、当前进度
 2. `docs/tech-research.md`——灵矽平台技术预研究：能力边界、客户端选型、已验证的免硬件开发方案
-3. `docs/product-research.md`——产品调研与选型：市场同质化风险、推荐的游戏概念与理由
+3. `ideas/README.md`——团队候选方案入口
+4. `ideas/evaluation.md`——统一评估标准、硬门槛和竞价记录
 
 方向、调研结论或约束发生变化时，请持续更新对应文档，保持三份文档与实际进展同步。

@@ -1,8 +1,6 @@
 # 《人类暗号》
 
-> 来源：综合提取自 [docs/product-research.md](../docs/product-research.md)（第三轮结论）和
-> [docs/product-research-review.md](../docs/product-research-review.md)（第 5 节，Codex 独立调研的
-> 原始设计）。这是新增团队 Ideas 前的阶段性推荐，不代表最终排名。
+> 来源：项目早期产品调研提案。该调研已由候选方案与 [evaluation.md](./evaluation.md) 取代；这是阶段性推荐，不代表最终排名。
 
 ## 一句话简介
 
