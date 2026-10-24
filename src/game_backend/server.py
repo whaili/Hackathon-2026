@@ -9,8 +9,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .audio_codec import OpusPcm16Decoder, Pcm16OpusEncoder
@@ -44,6 +44,9 @@ class Room:
 
 rooms: dict[str, Room] = {}
 rooms_lock = asyncio.Lock()
+# Lingxi invokes MCP with this session ID. It is registered after the browser
+# session completes the Lingxi hello handshake.
+lingxi_sessions: dict[str, tuple[str, str]] = {}
 
 
 async def relay_lingxi(session: LingxiSession, browser: WebSocket) -> None:
@@ -75,6 +78,99 @@ async def relay_lingxi(session: LingxiSession, browser: WebSocket) -> None:
 @app.get("/")
 async def index() -> FileResponse:
     return FileResponse(ROOT / "static" / "index.html")
+
+
+def mcp_result(request_id: Any, content: str, structured: dict[str, Any]) -> JSONResponse:
+    return JSONResponse({
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "result": {
+            "content": [{"type": "text", "text": content}],
+            "structuredContent": structured,
+            "isError": False,
+        },
+    })
+
+
+def mcp_error(request_id: Any, code: int, message: str) -> JSONResponse:
+    return JSONResponse({"jsonrpc": "2.0", "id": request_id, "error": {"code": code, "message": message}})
+
+
+@app.get("/mcp")
+async def mcp_info() -> JSONResponse:
+    """A health/readiness response for tunnel and operator checks."""
+    return JSONResponse({"name": "dont-let-it-hear-mcp", "transport": "streamable-http"})
+
+
+@app.post("/mcp")
+@app.post("/mcp/message")
+async def mcp_message(request: Request) -> Response:
+    """Minimal Streamable HTTP JSON-RPC MCP server for the game state machine."""
+    message = await request.json()
+    request_id = message.get("id")
+    method = message.get("method")
+    if method == "initialize":
+        return JSONResponse({
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": {
+                "protocolVersion": message.get("params", {}).get("protocolVersion", "2025-03-26"),
+                "capabilities": {"tools": {}},
+                "serverInfo": {"name": "dont-let-it-hear-mcp", "version": "0.1.0"},
+            },
+        })
+    if method == "notifications/initialized":
+        return Response(status_code=202)
+    if method == "tools/list":
+        return JSONResponse({
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": {"tools": [
+                {
+                    "name": "game.get_state",
+                    "description": "Read the current game state for this player's room.",
+                    "inputSchema": {"type": "object", "properties": {}},
+                },
+                {
+                    "name": "game.apply_action",
+                    "description": "Apply one validated in-game action for this player.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {"action": {"type": "string", "description": "Short game action"}},
+                        "required": ["action"],
+                    },
+                },
+            ]},
+        })
+    if method != "tools/call":
+        return mcp_error(request_id, -32601, f"Unsupported MCP method: {method}")
+
+    session_id = request.headers.get("X-Linx-Session-Id", "")
+    binding = lingxi_sessions.get(session_id)
+    if binding is None:
+        return mcp_error(request_id, -32001, "No active browser game session for this Lingxi session")
+    room_id, player_id = binding
+    room = rooms.get(room_id)
+    if room is None:
+        return mcp_error(request_id, -32002, "Game room no longer exists")
+
+    params = message.get("params", {})
+    tool_name = params.get("name")
+    if tool_name == "game.get_state":
+        state = room.public_state()
+        return mcp_result(request_id, json.dumps(state, ensure_ascii=False), state)
+    if tool_name == "game.apply_action":
+        action = str(params.get("arguments", {}).get("action", "")).strip()[:40]
+        if not action:
+            return mcp_error(request_id, -32602, "action is required")
+        forbidden = any(word in action for word in ("安静", "声音", "说话"))
+        room.alert_level = min(5, room.alert_level + int(forbidden))
+        event = {"type": "mcp_action", "player_id": player_id, "action": action, "forbidden": forbidden, "at": time.time()}
+        room.action_history.append(event)
+        await broadcast(room, {"type": "event", "event": event, "state": room.public_state()})
+        state = room.public_state()
+        return mcp_result(request_id, json.dumps(state, ensure_ascii=False), state)
+    return mcp_error(request_id, -32602, f"Unknown game tool: {tool_name}")
 
 
 @app.post("/api/rooms")
@@ -175,6 +271,9 @@ async def room_socket(websocket: WebSocket, room_id: str, player_id: str = "") -
                 try:
                     lingxi = LingxiSession(configured_device_id())
                     hello = await lingxi.connect()
+                    session_id = hello.get("session_id")
+                    if session_id:
+                        lingxi_sessions[session_id] = (room.room_id, player_id)
                     encoder = Pcm16OpusEncoder()
                     await lingxi.start_listening()
                     lingxi_task = asyncio.create_task(relay_lingxi(lingxi, websocket))
@@ -199,6 +298,11 @@ async def room_socket(websocket: WebSocket, room_id: str, player_id: str = "") -
         if lingxi_task is not None:
             lingxi_task.cancel()
         if lingxi is not None:
+            if lingxi.socket is not None:
+                # The Lingxi session ID is only useful while this socket lives.
+                stale_ids = [key for key, value in lingxi_sessions.items() if value == (room.room_id, player_id)]
+                for stale_id in stale_ids:
+                    lingxi_sessions.pop(stale_id, None)
             await lingxi.close()
         if room.sockets.get(player_id) is websocket:
             room.sockets.pop(player_id, None)

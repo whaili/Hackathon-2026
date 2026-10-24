@@ -27,3 +27,5 @@ docker compose -f deploy/compose.yaml up -d --build
 ```
 
 浏览器客户端不持有灵矽 token；服务端通过 `LINX_DEVICE_ID` 完成 OTA，获取短期会话 token。
+
+灵矽 MCP 的控制台配置、Cloudflare Tunnel 和端到端测试见 [MCP 接入文档](../../docs/mcp-integration.md)。
