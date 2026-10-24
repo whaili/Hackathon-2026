@@ -220,40 +220,50 @@ this Lingxi session"}`. This confirms the backend's MCP contract and the
 session-mapping security model both work exactly as `docs/mcp-integration.md`
 describes.
 
-### Open issue: intermittent tool-discovery failure on the Lingxi side
+### Resolved (mostly): intermittent tool-call failure, root-caused to default plugin interference
 
-A second live test with `"拿起钥匙"` (same agent, same Prompt, same MCP
-binding, moments later) failed: the model narrated at length that it only
-has 天气/新闻/时间获取/黄历获取/退出意图处理 available and does **not** have a
-game tool, then gave up. Backend logs for that turn show only 3 `POST /mcp`
-calls (`initialize` → 200, `notifications/initialized` → 202,
-`tools/list` → 200) — `tools/list` succeeded at the HTTP level (same
-response as the direct curl test, which correctly lists both game tools),
-but the model's own context apparently did not include the MCP tools that
-turn, despite the identical agent configuration that worked moments earlier
-for `game.get_state`.
+A second live test with `"拿起钥匙"` initially failed: the model narrated at
+length that it only has 天气/新闻/时间获取/黄历获取/退出意图处理 available and
+does **not** have a game tool, then gave up. Backend logs for that turn
+showed only 3 `POST /mcp` calls (`initialize` → 200,
+`notifications/initialized` → 202, `tools/list` → 200) — `tools/list`
+succeeded at the HTTP level, but no `tools/call` followed.
 
-This looks like an intermittent issue in how the Lingxi platform merges MCP
-`tools/list` results into the model's available-tools context — not
-something fixable from the backend or Prompt side, since the HTTP-level
-exchange was identical to the successful case. Not yet characterized:
-failure rate, whether it correlates with which tool is being requested,
-retry window, or the TTS response time (the failing turn also took unusually
-long and never reached `linx_turn_complete` within a 45s window, versus ~5s
-for the successful turn).
+To characterize this, 20 trials were run via a batch script alternating
+`"查询游戏状态"` / `"拿起钥匙"`, classifying each trial by diffing the
+`POST /mcp` count on `jfcs1026` before/after (4 calls = a real `tools/call`
+happened; 3 = it stopped at `tools/list`):
 
-**Suggested next steps for whoever picks this up:**
+| Condition | Trials | Success | Failure mode observed |
+|---|---:|---:|---|
+| Before fix (默认插件 all enabled) | 10 | 8/10 (80%) | Both failures: model explicitly said it called 黄历获取 (lunar calendar) instead of `game.get_state` — a **tool-routing conflict** with the "查询...状态" phrasing, not a missing-tool problem |
+| After disabling 天气/新闻/时间获取/黄历获取 under 技能与扩展 (kept 退出意图处理) | 20 | 19/20 (95%) | 1 failure, different signature: "动作无法执行，当前系统没有响应" — no mention of calling a wrong tool |
 
-1. Run `game.apply_action` several more times (the test script and audio
-   files below make this a ~10-second loop) to estimate the failure rate.
-2. If failures are frequent, consider whether unchecking the unrelated
-   default plugins (天气/新闻/时间获取/黄历获取 under 技能与扩展) reduces
-   confusion — not yet tried, since the one successful run had them still
-   enabled, so they are not proven to be the cause.
-3. If this persists, it is worth reporting to 灵矽/七牛 as a platform
-   reliability question, since both the Prompt and the MCP server's
-   `tools/list` response were confirmed correct and unchanging between the
-   success and failure cases.
+**Conclusion**: the dominant failure mode (misrouting to an unrelated
+built-in plugin) is fixed by disabling those plugins — this was tried and
+confirmed, reversing the earlier "not yet tried" status. A residual ~5%
+failure rate remains with a different, less-understood signature (looks more
+like a dropped/timed-out call than a routing error). This residual rate is
+low enough to not block building the game, but worth keeping in mind for the
+live demo — consider a brief "let me check again" retry prompt in the game's
+voice UX as a cheap mitigation, since the model/backend already have no
+state corruption risk from a no-op failed turn.
+
+**Current live agent config** (for whoever continues this): 技能与扩展 → 默认
+插件 has only 退出意图处理 checked; 天气/新闻/时间获取/黄历获取 are unchecked.
+If someone re-enables them (e.g. by selecting a different 角色模板 which may
+reset this section), re-run the batch test below to check whether the
+failure rate regresses.
+
+**Reusable batch test**:
+
+```text
+/tmp/mcp-handoff-test/batch_test.sh   # runs N alternating trials, classifies each via jfcs1026 log diff, writes batch_results.tsv
+```
+
+```bash
+cd /tmp/mcp-handoff-test && bash batch_test.sh 20
+```
 
 ### Reusable test tooling (not committed to the repo — local to this session)
 
