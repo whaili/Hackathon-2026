@@ -5,7 +5,7 @@ import base64
 import json
 import secrets
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +14,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .audio_codec import OpusPcm16Decoder, Pcm16OpusEncoder
+from .game_engine import GameState
 from .linx_client import LingxiSession, configured_device_id
 
 
@@ -27,18 +28,17 @@ class Room:
     room_id: str
     created_at: float = field(default_factory=time.time)
     players: dict[str, str] = field(default_factory=dict)
-    alert_level: int = 0
-    remaining_time: int = 90
+    game: GameState = field(default_factory=GameState)
     action_history: list[dict[str, Any]] = field(default_factory=list)
     sockets: dict[str, WebSocket] = field(default_factory=dict, repr=False)
+    timer_task: asyncio.Task[None] | None = field(default=None, repr=False)
 
     def public_state(self) -> dict[str, Any]:
         return {
             "room_id": self.room_id,
             "players": self.players,
-            "alert_level": self.alert_level,
-            "remaining_time": self.remaining_time,
             "action_history": self.action_history[-20:],
+            **self.game.public_state(),
         }
 
 
@@ -47,9 +47,41 @@ rooms_lock = asyncio.Lock()
 # Lingxi invokes MCP with this session ID. It is registered after the browser
 # session completes the Lingxi hello handshake.
 lingxi_sessions: dict[str, tuple[str, str]] = {}
+continuous_lingxi_sessions: set[str] = set()
 
 
-async def relay_lingxi(session: LingxiSession, browser: WebSocket) -> None:
+async def publish_game_events(room: Room, events: list[dict[str, Any]]) -> None:
+    if not events:
+        return
+    room.action_history.extend(events)
+    state = room.public_state()
+    for event in events:
+        await broadcast(room, {"type": "event", "event": event, "state": state})
+
+
+async def run_game_timer(room: Room) -> None:
+    try:
+        while room.game.phase == "active":
+            await asyncio.sleep(1)
+            event = room.game.tick()
+            if event:
+                await publish_game_events(room, [event])
+            else:
+                await broadcast(room, {"type": "state", "state": room.public_state()})
+    finally:
+        room.timer_task = None
+
+
+async def start_game(room: Room) -> None:
+    if room.timer_task is not None:
+        room.timer_task.cancel()
+    await publish_game_events(room, [room.game.start()])
+    room.timer_task = asyncio.create_task(run_game_timer(room))
+
+
+async def relay_lingxi(
+    session: LingxiSession, browser: WebSocket, room: Room, player_id: str, continuous: bool,
+) -> None:
     """Forward only safe upstream results; credentials remain server-side."""
     tts_packets: list[bytes] = []
     decoder = OpusPcm16Decoder()
@@ -58,6 +90,8 @@ async def relay_lingxi(session: LingxiSession, browser: WebSocket) -> None:
             if isinstance(message, str):
                 data = json.loads(message)
                 await browser.send_json({"type": "linx_event", "event": data})
+                if continuous and data.get("type") == "stt" and data.get("text"):
+                    await publish_game_events(room, room.game.process_utterance(player_id, str(data["text"])))
                 if data.get("type") == "tts" and data.get("state") == "stop":
                     if tts_packets:
                         wav = decoder.wav(tts_packets)
@@ -66,9 +100,10 @@ async def relay_lingxi(session: LingxiSession, browser: WebSocket) -> None:
                             "type": "linx_tts_wav",
                             "audio": base64.b64encode(wav).decode("ascii"),
                         })
-                    await browser.send_json({"type": "linx_turn_complete"})
-                    await session.close()
-                    return
+                    if not continuous:
+                        await browser.send_json({"type": "linx_turn_complete"})
+                        await session.close()
+                        return
             else:
                 tts_packets.append(message)
     except Exception as error:
@@ -163,11 +198,14 @@ async def mcp_message(request: Request) -> Response:
         action = str(params.get("arguments", {}).get("action", "")).strip()[:40]
         if not action:
             return mcp_error(request_id, -32602, "action is required")
-        forbidden = any(word in action for word in ("安静", "声音", "说话"))
-        room.alert_level = min(5, room.alert_level + int(forbidden))
-        event = {"type": "mcp_action", "player_id": player_id, "action": action, "forbidden": forbidden, "at": time.time()}
-        room.action_history.append(event)
-        await broadcast(room, {"type": "event", "event": event, "state": room.public_state()})
+        if session_id in continuous_lingxi_sessions:
+            state = room.public_state()
+            return mcp_result(
+                request_id,
+                "Continuous ASR already applies spoken actions; use this state as the authoritative result.",
+                state,
+            )
+        await publish_game_events(room, room.game.process_utterance(player_id, action, source="mcp"))
         state = room.public_state()
         return mcp_result(request_id, json.dumps(state, ensure_ascii=False), state)
     return mcp_error(request_id, -32602, f"Unknown game tool: {tool_name}")
@@ -215,6 +253,7 @@ async def room_socket(websocket: WebSocket, room_id: str, player_id: str = "") -
     lingxi: LingxiSession | None = None
     lingxi_task: asyncio.Task[None] | None = None
     encoder: Pcm16OpusEncoder | None = None
+    lingxi_continuous = False
     try:
         while True:
             frame = await websocket.receive()
@@ -231,23 +270,23 @@ async def room_socket(websocket: WebSocket, room_id: str, player_id: str = "") -
             import json
             message = json.loads(frame["text"])
             kind = message.get("type")
-            if kind == "say":
+            if kind == "game_start":
+                await start_game(room)
+            elif kind == "say":
                 text = str(message.get("text", "")).strip()[:200]
                 if not text:
                     continue
-                event = {"type": "say", "player_id": player_id, "text": text, "at": time.time()}
-                room.action_history.append(event)
-                await broadcast(room, {"type": "event", "event": event, "state": room.public_state()})
+                if room.game.phase == "active":
+                    await publish_game_events(room, room.game.process_utterance(player_id, text, source="text"))
+                else:
+                    event = {"type": "say", "player_id": player_id, "text": text, "at": time.time()}
+                    room.action_history.append(event)
+                    await broadcast(room, {"type": "event", "event": event, "state": room.public_state()})
             elif kind == "action":
                 action = str(message.get("action", "")).strip()[:40]
                 if not action:
                     continue
-                # Placeholder rule: every forbidden-word hit raises the alert by one.
-                forbidden = any(word in action for word in ("安静", "声音", "说话"))
-                room.alert_level = min(5, room.alert_level + int(forbidden))
-                event = {"type": "action", "player_id": player_id, "action": action, "forbidden": forbidden, "at": time.time()}
-                room.action_history.append(event)
-                await broadcast(room, {"type": "event", "event": event, "state": room.public_state()})
+                await publish_game_events(room, room.game.process_utterance(player_id, action, source="action"))
             elif kind == "ping":
                 await websocket.send_json({"type": "pong"})
             elif kind == "audio_start":
@@ -275,8 +314,14 @@ async def room_socket(websocket: WebSocket, room_id: str, player_id: str = "") -
                     if session_id:
                         lingxi_sessions[session_id] = (room.room_id, player_id)
                     encoder = Pcm16OpusEncoder()
-                    await lingxi.start_listening()
-                    lingxi_task = asyncio.create_task(relay_lingxi(lingxi, websocket))
+                    lingxi_continuous = bool(message.get("continuous", False))
+                    mode = "realtime" if lingxi_continuous else str(message.get("mode", "manual"))
+                    if lingxi_continuous and session_id:
+                        continuous_lingxi_sessions.add(session_id)
+                    await lingxi.start_listening(mode)
+                    lingxi_task = asyncio.create_task(
+                        relay_lingxi(lingxi, websocket, room, player_id, lingxi_continuous)
+                    )
                     await websocket.send_json({"type": "linx_ready", "session_id": hello.get("session_id")})
                 except Exception as error:
                     if lingxi is not None:
@@ -289,7 +334,21 @@ async def room_socket(websocket: WebSocket, room_id: str, player_id: str = "") -
                     for opus in (encoder.flush() if encoder else []):
                         await lingxi.send_opus(opus)
                     await lingxi.stop_listening()
-                    await websocket.send_json({"type": "linx_input_complete"})
+                    if lingxi_continuous:
+                        if lingxi_task is not None:
+                            lingxi_task.cancel()
+                            lingxi_task = None
+                        await lingxi.close()
+                        stale_ids = [key for key, value in lingxi_sessions.items() if value == (room.room_id, player_id)]
+                        for stale_id in stale_ids:
+                            lingxi_sessions.pop(stale_id, None)
+                            continuous_lingxi_sessions.discard(stale_id)
+                        lingxi = None
+                        encoder = None
+                        lingxi_continuous = False
+                        await websocket.send_json({"type": "linx_turn_complete"})
+                    else:
+                        await websocket.send_json({"type": "linx_input_complete"})
     except (WebSocketDisconnect, RuntimeError):
         # Starlette 1.x raises WebSocketDisconnected (a RuntimeError subclass)
         # if the peer disconnects between loop iterations.
@@ -303,6 +362,7 @@ async def room_socket(websocket: WebSocket, room_id: str, player_id: str = "") -
                 stale_ids = [key for key, value in lingxi_sessions.items() if value == (room.room_id, player_id)]
                 for stale_id in stale_ids:
                     lingxi_sessions.pop(stale_id, None)
+                    continuous_lingxi_sessions.discard(stale_id)
             await lingxi.close()
         if room.sockets.get(player_id) is websocket:
             room.sockets.pop(player_id, None)
