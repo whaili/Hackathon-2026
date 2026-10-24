@@ -1,2 +1,3 @@
 # Hackathon 内部资料，不对外提交
 *.pdf
+deploy/.env

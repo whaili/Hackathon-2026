@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>别让它听见 · 链路验证</title>
+  <style>
+    body { max-width: 760px; margin: 2rem auto; padding: 0 1rem; font: 16px system-ui, sans-serif; color: #17202a; }
+    button, input { font: inherit; padding: .5rem .7rem; margin: .2rem; }
+    #state { white-space: pre-wrap; background: #f2f4f5; padding: 1rem; min-height: 8rem; }
+    #log { height: 14rem; overflow: auto; border: 1px solid #ccd3d8; padding: .6rem; }
+    .row { margin: .8rem 0; }
+  </style>
+</head>
+<body>
+  <h1>别让它听见 · 浏览器/后端链路</h1>
+  <p>当前版本验证房间、事件和浏览器音频回声链路，不会把音频发送给灵矽。</p>
+  <p id="securityStatus"></p>
+  <div class="row">
+    <button id="create">创建房间</button>
+    <input id="room" placeholder="房间号">
+    <input id="player" placeholder="玩家名">
+    <button id="join">加入房间</button>
+  </div>
+  <div class="row">
+    <input id="text" placeholder="发送一句话或动作" disabled>
+    <button id="say" disabled>发送语句</button>
+    <button id="action" disabled>发送动作</button>
+  </div>
+  <div class="row">
+    <button id="record" disabled>开始录音回声测试</button>
+    <span id="audioStatus">未开始</span>
+  </div>
+  <div class="row">
+    <button id="linx" disabled>开始灵矽识别测试</button>
+    <span id="linxStatus">未连接</span>
+  </div>
+  <h2>当前状态</h2><div id="state">尚未连接</div>
+  <h2>事件日志</h2><div id="log"></div>
+  <script>
+    let socket, recorder, audioChunks = [], recording = false, linxRecording = false, audioContext, workletNode, micStream;
+    const $ = id => document.getElementById(id);
+    const log = value => { $('log').insertAdjacentHTML('beforeend', `<div>${new Date().toLocaleTimeString()} ${value}</div>`); $('log').scrollTop = $('log').scrollHeight; };
+    const setState = state => $('state').textContent = JSON.stringify(state, null, 2);
+    const secure = window.isSecureContext && !!navigator.mediaDevices?.getUserMedia;
+    $('securityStatus').textContent = secure
+      ? `麦克风环境可用（${location.protocol}//${location.host}）`
+      : `麦克风不可用：当前页面不是受信任的 HTTPS 安全上下文（${location.protocol}//${location.host}）。请使用 HTTPS 地址并信任证书。`;
+    $('create').onclick = async () => { const r = await fetch('/api/rooms', {method: 'POST'}); const data = await r.json(); $('room').value = data.room_id; setState(data.state); log(`房间已创建: ${data.room_id}`); };
+    $('join').onclick = () => { const room = $('room').value.trim().toUpperCase(); const player = $('player').value.trim() || `browser-${Math.random().toString(16).slice(2, 6)}`; if (!room) return log('请先填写房间号'); socket = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/${room}?player_id=${encodeURIComponent(player)}`); socket.binaryType = 'arraybuffer'; socket.onopen = () => { $('text').disabled = $('say').disabled = $('action').disabled = $('record').disabled = $('linx').disabled = false; log(`已连接: ${player}`); }; socket.onmessage = event => { if (typeof event.data !== 'string') { audioChunks.push(event.data); $('audioStatus').textContent = `已收到 ${(audioChunks.reduce((n, x) => n + x.byteLength, 0) / 1024).toFixed(1)} KB`; return; } const data = JSON.parse(event.data); if (data.state) setState(data.state); if (data.event) log(`${data.event.player_id}: ${data.event.text || data.event.action}`); if (data.type === 'audio_complete') finishAudio(); if (data.type === 'linx_ready') $('linxStatus').textContent = `已连接会话 ${data.session_id}`; if (data.type === 'linx_input_complete') $('linxStatus').textContent = '已送出，等待识别结果'; if (data.type === 'linx_error') { $('linxStatus').textContent = `灵矽错误: ${data.message}`; $('linx').disabled=false; $('linx').textContent='开始灵矽识别测试'; log(`灵矽错误: ${data.message}`); } if (data.type === 'linx_event') { const e=data.event; if (e.type === 'stt') $('linxStatus').textContent = `识别: ${e.text}`; else log(`灵矽 ${e.type}: ${e.text || e.state || ''}`); } if (data.type === 'linx_tts_wav') { const raw=atob(data.audio), bytes=new Uint8Array(raw.length); for(let i=0;i<raw.length;i++) bytes[i]=raw.charCodeAt(i); const audio=new Audio(URL.createObjectURL(new Blob([bytes],{type:'audio/wav'}))); audio.play().catch(()=>{}); document.body.appendChild(audio); $('linxStatus').textContent='正在播放灵矽回复'; } if (data.type === 'linx_turn_complete') { $('linx').disabled=false; $('linx').textContent='开始灵矽识别测试'; $('linxStatus').textContent='本轮完成，可以开始下一轮'; } }; socket.onclose = () => log('连接已关闭'); };
+    $('say').onclick = () => send('say'); $('action').onclick = () => send('action');
+    $('record').onclick = async () => { if (recording) { recorder.stop(); return; } if (!navigator.mediaDevices?.getUserMedia) return $('audioStatus').textContent = microphoneUnavailableReason(); try { const stream = await navigator.mediaDevices.getUserMedia({audio: true}); const mime = ['audio/webm;codecs=opus', 'audio/webm'].find(x => MediaRecorder.isTypeSupported(x)); if (!mime) throw new Error('浏览器没有 WebM/Opus 支持'); audioChunks = []; recorder = new MediaRecorder(stream, {mimeType: mime}); recorder.ondataavailable = event => { if (event.data.size && socket.readyState === WebSocket.OPEN) event.data.arrayBuffer().then(bytes => socket.send(bytes)); }; recorder.onstop = () => { stream.getTracks().forEach(track => track.stop()); socket.send(JSON.stringify({type: 'audio_end'})); recording = false; $('record').textContent = '开始录音回声测试'; $('audioStatus').textContent = '等待回传音频'; }; recorder.start(250); socket.send(JSON.stringify({type: 'audio_start', mime})); recording = true; $('record').textContent = '停止录音并播放'; $('audioStatus').textContent = '录音中...'; } catch (error) { $('audioStatus').textContent = `麦克风失败: ${error.name}: ${error.message}`; } };
+    $('linx').onclick = async () => { if (linxRecording) return stopLinx(); if (!navigator.mediaDevices?.getUserMedia) return $('linxStatus').textContent=microphoneUnavailableReason(); try { micStream = await navigator.mediaDevices.getUserMedia({audio: {channelCount: 1, echoCancellation: true, noiseSuppression: true}}); audioContext = new AudioContext({sampleRate: 16000}); await audioContext.audioWorklet.addModule('/static/pcm-worklet.js'); workletNode = new AudioWorkletNode(audioContext, 'pcm-capture'); const source = audioContext.createMediaStreamSource(micStream); source.connect(workletNode); workletNode.connect(audioContext.destination); workletNode.port.onmessage = ({data}) => { if (socket?.readyState !== WebSocket.OPEN || !linxRecording) return; const pcm = new Int16Array(data.length); for (let i=0;i<data.length;i++) pcm[i] = Math.max(-1, Math.min(1, data[i])) * 32767; socket.send(pcm.buffer); }; socket.send(JSON.stringify({type:'linx_start', sample_rate: audioContext.sampleRate})); linxRecording=true; $('linx').textContent='停止并识别'; $('linxStatus').textContent=`采集中 ${audioContext.sampleRate} Hz`; } catch (error) { $('linxStatus').textContent=`麦克风/PCM 初始化失败: ${error.name}: ${error.message}`; } };
+    function stopLinx() { linxRecording=false; workletNode?.disconnect(); micStream?.getTracks().forEach(t=>t.stop()); audioContext?.close(); socket.send(JSON.stringify({type:'linx_end'})); $('linx').disabled=true; $('linx').textContent='灵矽生成中'; }
+    function microphoneUnavailableReason() { return !window.isSecureContext ? `麦克风不可用：${location.protocol}//${location.host} 不被浏览器视为受信任 HTTPS。请先安装并信任该证书。` : '麦克风不可用：浏览器未提供 mediaDevices 接口。请使用最新版 Chrome、Safari 或 Edge。'; }
+    function finishAudio() { if (!audioChunks.length) return; const blob = new Blob(audioChunks, {type: recorder?.mimeType || 'audio/webm'}); const url = URL.createObjectURL(blob); const audio = new Audio(url); audio.controls = true; audio.play().catch(() => {}); document.body.appendChild(audio); $('audioStatus').textContent = `回声完成 ${(blob.size / 1024).toFixed(1)} KB`; log('音频回传完成，请播放页面底部的音频'); }
+    function send(type) { const text = $('text').value.trim(); if (text && socket?.readyState === WebSocket.OPEN) { socket.send(JSON.stringify({type, ...(type === 'say' ? {text} : {action: text})})); $('text').value = ''; } }
+  </script>
+</body>
+</html>

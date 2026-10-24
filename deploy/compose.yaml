@@ -1,0 +1,13 @@
+services:
+  game-backend:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      args:
+        BASE_IMAGE: build-dev-env:candidate-tun-final
+    container_name: dont-let-it-hear-game
+    restart: unless-stopped
+    environment:
+      LINX_DEVICE_ID: ${LINX_DEVICE_ID:?Set LINX_DEVICE_ID in deploy/.env}
+    ports:
+      - "18080:8080"

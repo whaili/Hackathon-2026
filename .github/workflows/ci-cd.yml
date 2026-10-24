@@ -1,0 +1,39 @@
+name: Game Backend CI/CD
+
+on:
+  push:
+    branches:
+      - "**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate and build
+    runs-on: [self-hosted, linux, x64, jfcs1026]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check Python syntax
+        run: python3 -m compileall -q src/game_backend
+      - name: Build game backend image
+        run: docker build --build-arg BASE_IMAGE=build-dev-env:candidate-tun-final -f deploy/Dockerfile -t dont-let-it-hear-game:ci .
+
+  deploy:
+    name: Deploy main
+    if: github.ref == 'refs/heads/main'
+    needs: validate
+    runs-on: [self-hosted, linux, x64, jfcs1026]
+    environment: production
+    concurrency:
+      group: dont-let-it-hear-production
+      cancel-in-progress: false
+    env:
+      LINX_DEVICE_ID: ${{ secrets.LINX_DEVICE_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy container
+        run: docker-compose -f deploy/compose.yaml up -d --build
+      - name: Verify deployment
+        run: curl --fail --silent --show-error http://127.0.0.1:18080/ > /dev/null
