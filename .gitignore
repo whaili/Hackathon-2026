@@ -1,3 +1,7 @@
 # Hackathon 内部资料，不对外提交
 *.pdf
 deploy/.env
+
+# 本地生成的测试产物，不提交
+src/game_backend/tools/audio/
+src/game_backend/tools/batch_results.tsv
