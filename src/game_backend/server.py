@@ -9,12 +9,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import Body, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .audio_codec import OpusPcm16Decoder, Pcm16OpusEncoder
-from .game_engine import GameState
+from .game_engine import GameEngine, create_game
 from .linx_client import LingxiSession, configured_device_id
 
 
@@ -26,16 +26,21 @@ app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 @dataclass
 class Room:
     room_id: str
+    mode: str = "solo"
     created_at: float = field(default_factory=time.time)
     players: dict[str, str] = field(default_factory=dict)
-    game: GameState = field(default_factory=GameState)
+    game: GameEngine = field(init=False)
     action_history: list[dict[str, Any]] = field(default_factory=list)
     sockets: dict[str, WebSocket] = field(default_factory=dict, repr=False)
     timer_task: asyncio.Task[None] | None = field(default=None, repr=False)
 
+    def __post_init__(self) -> None:
+        self.game = create_game(self.mode)
+
     def public_state(self) -> dict[str, Any]:
         return {
             "room_id": self.room_id,
+            "room_mode": self.mode,
             "players": self.players,
             "action_history": self.action_history[-20:],
             **self.game.public_state(),
@@ -212,10 +217,13 @@ async def mcp_message(request: Request) -> Response:
 
 
 @app.post("/api/rooms")
-async def create_room() -> dict[str, Any]:
+async def create_room(payload: dict[str, Any] | None = Body(default=None)) -> dict[str, Any]:
+    mode = str((payload or {}).get("mode", "solo")).strip().lower()
+    if mode not in {"solo", "duo"}:
+        raise HTTPException(status_code=422, detail="mode must be solo or duo")
     room_id = secrets.token_urlsafe(4).upper()
     async with rooms_lock:
-        rooms[room_id] = Room(room_id=room_id)
+        rooms[room_id] = Room(room_id=room_id, mode=mode)
     return {"room_id": room_id, "state": rooms[room_id].public_state()}
 
 

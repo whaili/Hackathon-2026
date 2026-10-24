@@ -3,8 +3,9 @@
 《别让它听见》的浏览器 + 游戏后端 + 灵矽语音/MCP 接入的技术文档。目标是让任何人拉下代码后，
 不需要额外口头交接，就能完成编译、部署、开发、测试和端到端演示验证。
 
-玩法设计见 [ideas/dont-let-it-hear.md](../../ideas/dont-let-it-hear.md)；这里讲工程实现。当前已有首版
-可玩的确定性规则状态机与持续 ASR 结算，但浏览器仍是调试入口，最终玩家视觉和真人多人大规模验证尚未完成。
+玩法规格见 [docs/game-design.md](../../docs/game-design.md)；这里讲工程实现。当前已有可玩的单人
+“静默协议”挑战、持续 ASR 结算和事件驱动场景。双人模式仍保留原有共享状态原型；规格中的私有信息
+频道和断线暂停规则尚未实现。真人麦克风与多人同时持续监听仍需继续验证。
 
 ## 架构总览
 
@@ -40,7 +41,8 @@ sequenceDiagram
 ```text
 src/game_backend/
 ├── server.py          # HTTP/WebSocket 房间服务 + MCP 端点 + 灵矽会话编排
-├── linx_client.py      # OTA、灵矽 WebSocket 认证与协议客户端
+├── game_engine.py     # 引擎契约、单人/双人场景实现和语音意图规则
+├── linx_client.py     # OTA、灵矽 WebSocket 认证与协议客户端
 ├── audio_codec.py      # PCM16 / 裸 Opus / WAV 编解码
 ├── static/             # 浏览器页面（index.html）和 AudioWorklet（pcm-worklet.js）
 ├── requirements.txt
@@ -52,6 +54,15 @@ deploy/
 └── .env.example
 .github/workflows/ci-cd.yml   # push 即构建；push 到 main 即自动部署
 ```
+
+### 场景与模式扩展
+
+`Room` 只保存 `mode` 并通过 `create_game(mode)` 取得满足 `GameEngine` 契约的场景实例；它不依赖任何
+具体物件或谜题。新模式需要实现 `public_state`、`start`、`tick`、`process_utterance` 四个方法，并在
+`create_game` 注册。场景把语音文本结算为结构化事件，房间服务负责广播，浏览器根据事件/状态渲染动画。
+
+- `solo`：默认模式，`SoloChallengeState` 实现“静默协议”三阶段语音关卡。
+- `duo`：保留 `GameState` 的共享状态原型，便于旧链路和多人房间回归；不应宣称已实现信息不对称协作。
 
 ## 本地开发
 
@@ -163,12 +174,27 @@ Cloudflare Tunnel URL 变更后，要回到第 1 步把 MCP 服务的 URL 改掉
 - `game.apply_action`：单轮模式接受任意字符串 `action`，按与 ASR 相同的确定性规则解析移动、拾取、
   放入逃生舱。持续监听模式中，ASR 已先执行该规则；此工具只返回权威状态以防同一句重复执行。
 
-## 首版规则状态机
+## 游戏引擎与模式
 
-`game_start` 启动 90 秒的“逃生舱”场景。玩家按顺序拾取并放入 `钥匙`、`电池`、`样本`，三件完成即胜利。
-每个阶段公开两条动态禁语；命中禁语或下达错误动作会提升警报、变更下一组禁语并记录可展示的场景后果。
-警报到 5 级或倒计时结束失败。规则实现位于 `game_engine.py`，所有 `say`、`action`、持续模式的 `stt`
-与单轮 MCP 动作都走同一解析器。
+所有 `say`、`action`、持续模式的 `stt` 与单轮 MCP 动作都进入房间当前引擎的同一解析器。警报到 5 级或
+倒计时结束均失败。
+
+### 单人挑战：静默协议
+
+`POST /api/rooms` 不带参数或传入 `{"mode":"solo"}` 会创建默认单人房。`game_start` 启动 90 秒挑战：
+
+1. 说“探索能源区”，再用“选择最尖锐的脉冲”等安全表述识别能源。
+2. 说“检查控制台”，再说“校准稳定重复的频率”。
+3. 说“解除安全锁扣”，再说“启动主推进”。
+
+每阶段有两条公开的禁忌概念；触发其可识别表达会加警报并阻断该句动作。玩家可说“请求提示”，共两次，
+每次获得线索但增加一级警报。无法识别的表达只请求澄清，不会随机推进。完整规格和可接受表达见
+[docs/game-design.md](../../docs/game-design.md)。
+
+### 双人协作原型
+
+`POST /api/rooms` 传入 `{"mode":"duo"}` 创建旧的共享状态房：按顺序拾取并放入 `钥匙`、`电池`、`样本`。
+它保留用于兼容回归和多人连接验证；新的分离频道双人关卡尚未开始实现。
 
 ### MCP 安全模型
 
@@ -187,16 +213,24 @@ Cloudflare Tunnel URL 变更后，要回到第 1 步把 MCP 服务的 URL 改掉
 
 1. 浏览器打开部署的 HTTPS 地址（如 `https://10.210.34.33:18081/`）
 2. 首次访问会跳出自签名证书警告，点"高级"→"继续前往"信任一次
-3. 点"创建房间"，或者填房间号"加入房间"
-4. 点"开始 90 秒游戏"，页面显示当前禁语和任务状态
-5. 点"启动灵矽持续监听"，允许浏览器的麦克风权限请求
-6. 对着麦克风合作说话；例如依次说"拿起钥匙"、"放入逃生舱"。每句最终 ASR 会立刻结算到状态机
-7. 听 AI 的语音回复，同时看页面"当前状态"面板和事件日志
+3. 大厅默认选择“单人挑战”，点“创建单人挑战”；双人原型才需要分享房间号并让同伴加入
+4. 点“启动单人挑战”，页面显示第一阶段、禁忌概念和可直接说的语音示例
+5. 点“启动持续监听”，允许浏览器的麦克风权限请求
+6. 对着麦克风说“探索能源区”，再按场景给出的安全语音提示推进；不要用鼠标点击场景物件
+7. 观察监听波、场景警报、阶段进度和系统语音反馈；可说“请求提示”，但每局只有两次
 
 > 注意：如果你和部署主机不在同一个内网/VPN，可能连不上私网 IP，需要先确认网络路由，或者让
 > 部署的人给一个能从外网访问的地址。
 
 ## 测试
+
+先执行确定性单元和 WebSocket 回归，不消耗灵矽额度：
+
+```bash
+PYTHONPATH=src python3 -m unittest discover -s src/game_backend/tests -v
+```
+
+其中包含单人模式完整通关、禁忌阻断、求助消耗、模式建房与 WebSocket 状态机测试。
 
 ### 1. 快速健康检查（不消耗灵矽额度）
 
@@ -233,6 +267,7 @@ cd src/game_backend/tools
 pip install --user edge-tts
 bash gen_audio.sh                       # 生成测试语音
 python3 e2e_test.py audio/query_state.pcm   # 单次端到端：创建房间→建立灵矽会话→识别→播报
+python3 e2e_test.py audio/solo_explore.pcm --continuous --mode solo # 单人探索 ASR→状态机
 MCP_URL="https://<公网 MCP 地址>/mcp" python3 session_mcp_test.py   # 绕开灵矽，直接测后端 MCP 实现
 bash batch_test.sh 20                   # 批量测可靠性，见下一节
 ```

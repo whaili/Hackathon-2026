@@ -40,8 +40,12 @@ ssl_ctx.check_hostname = False
 ssl_ctx.verify_mode = ssl.CERT_NONE
 
 
-def create_room() -> str:
-    req = urllib.request.Request(f"{BASE_HTTP}/api/rooms", method="POST", data=b"")
+def create_room(mode: str) -> str:
+    payload = json.dumps({"mode": mode}).encode()
+    req = urllib.request.Request(
+        f"{BASE_HTTP}/api/rooms", method="POST", data=payload,
+        headers={"Content-Type": "application/json"},
+    )
     with urllib.request.urlopen(req, timeout=10, context=ssl_ctx) as resp:
         data = json.loads(resp.read().decode())
         print(f"[http] room created: {data}")
@@ -56,10 +60,14 @@ async def main() -> None:
         action="store_true",
         help="start the game and verify that a realtime STT result drives the state machine",
     )
+    parser.add_argument(
+        "--mode", choices=("solo", "duo"), default="solo",
+        help="room mode to create (default: solo)",
+    )
     args = parser.parse_args()
     pcm_file = args.pcm_file
 
-    room_id = create_room()
+    room_id = create_room(args.mode)
     url = f"{BASE_WS}/ws/{room_id}?player_id={PLAYER_ID}"
     print(f"[ws] connecting {url}")
     ssl_option = ssl_ctx if url.startswith("wss://") else None
@@ -105,7 +113,9 @@ async def main() -> None:
                 print(f"[ws] << linx_tts_wav ({len(msg.get('audio', ''))} base64 chars, omitted)")
             else:
                 print(f"[ws] << {msg}")
-            if args.continuous and msg_type == "event" and msg.get("event", {}).get("type") in {"action_applied", "alert_raised"}:
+            if args.continuous and msg_type == "event" and msg.get("event", {}).get("type") in {
+                "action_applied", "alert_raised", "clue_revealed", "stage_completed", "game_won", "clarification_needed",
+            }:
                 print("[ws] continuous state-machine event received, stopping listener")
                 await ws.send(json.dumps({"type": "linx_end"}))
                 break

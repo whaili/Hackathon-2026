@@ -16,3 +16,5 @@ gen() {
 
 gen "查询游戏状态" query_state
 gen "拿起钥匙" pick_key
+gen "探索能源区" solo_explore
+gen "选择最尖锐的脉冲" solo_energy

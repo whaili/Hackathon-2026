@@ -28,7 +28,15 @@ python3 e2e_test.py audio/query_state.pcm
 
 ```bash
 GAME_BASE_URL=http://127.0.0.1:8082 \
-  python3 e2e_test.py audio/pick_key.pcm --continuous
+  python3 e2e_test.py audio/solo_explore.pcm --continuous --mode solo
+```
+
+这会创建默认单人房，并验证“探索能源区”的 ASR 最终文本实际进入单人状态机。第一阶段必须先探索，
+再说“选择最尖锐的脉冲”；这样避免单句固定口令直接通关。旧双人原型仍可用：
+
+```bash
+GAME_BASE_URL=http://127.0.0.1:8082 \
+  python3 e2e_test.py audio/pick_key.pcm --continuous --mode duo
 ```
 
 ## 验证 `realtime` 持续监听

@@ -1,6 +1,6 @@
 import unittest
 
-from game_backend.game_engine import GameState
+from game_backend.game_engine import GameState, SoloChallengeState, create_game
 
 
 class GameStateTests(unittest.TestCase):
@@ -41,6 +41,48 @@ class GameStateTests(unittest.TestCase):
         event = self.game.tick(now=(self.game.started_at or 0) + 91)
         self.assertEqual(self.game.phase, "lost")
         self.assertEqual(event["reason"], "timeout")
+
+
+class SoloChallengeTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.game = SoloChallengeState()
+        self.game.start()
+
+    def test_solo_requires_safe_voice_actions_to_escape(self) -> None:
+        self.game.process_utterance("solo", "探索能源区")
+        events = self.game.process_utterance("solo", "选择最尖锐的脉冲")
+        self.assertEqual(events[-1]["type"], "stage_completed")
+        self.assertEqual(self.game.stage_index, 1)
+
+        self.game.process_utterance("solo", "检查控制台")
+        self.game.process_utterance("solo", "校准稳定重复的频率")
+        self.assertEqual(self.game.stage_index, 2)
+
+        self.game.process_utterance("solo", "解除安全锁扣")
+        events = self.game.process_utterance("solo", "启动主推进")
+        self.assertEqual(events[-1]["type"], "game_won")
+        self.assertEqual(self.game.phase, "won")
+
+    def test_solo_forbidden_expression_raises_alert_and_blocks_action(self) -> None:
+        events = self.game.process_utterance("solo", "选择左边那个")
+        self.assertEqual(self.game.alert_level, 1)
+        self.assertEqual(events[-1]["reason"], "forbidden_concept")
+        self.assertEqual(self.game.stage_index, 0)
+
+    def test_solo_requires_exploration_before_a_selection(self) -> None:
+        events = self.game.process_utterance("solo", "选择最尖锐的脉冲")
+        self.assertEqual(events[-1]["type"], "clarification_needed")
+        self.assertEqual(self.game.stage_index, 0)
+
+    def test_solo_help_costs_an_alert_and_is_limited(self) -> None:
+        events = self.game.process_utterance("solo", "给我一个提示")
+        self.assertEqual(events[-1]["type"], "help_used")
+        self.assertEqual(self.game.help_remaining, 1)
+        self.assertEqual(self.game.alert_level, 1)
+
+    def test_create_game_selects_modes(self) -> None:
+        self.assertEqual(create_game("solo").mode, "solo")
+        self.assertEqual(create_game("duo").mode, "duo")
 
 
 if __name__ == "__main__":
