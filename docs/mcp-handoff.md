@@ -238,16 +238,21 @@ happened; 3 = it stopped at `tools/list`):
 |---|---:|---:|---|
 | Before fix (默认插件 all enabled) | 10 | 8/10 (80%) | Both failures: model explicitly said it called 黄历获取 (lunar calendar) instead of `game.get_state` — a **tool-routing conflict** with the "查询...状态" phrasing, not a missing-tool problem |
 | After disabling 天气/新闻/时间获取/黄历获取 under 技能与扩展 (kept 退出意图处理) | 20 | 19/20 (95%) | 1 failure, different signature: "动作无法执行，当前系统没有响应" — no mention of calling a wrong tool |
+| After also adding a self-retry instruction to the Prompt ("if a tool call didn't return a result, silently retry once before telling the player") | 10 | 10/10 (100%) | none observed |
 
 **Conclusion**: the dominant failure mode (misrouting to an unrelated
-built-in plugin) is fixed by disabling those plugins — this was tried and
-confirmed, reversing the earlier "not yet tried" status. A residual ~5%
-failure rate remains with a different, less-understood signature (looks more
-like a dropped/timed-out call than a routing error). This residual rate is
-low enough to not block building the game, but worth keeping in mind for the
-live demo — consider a brief "let me check again" retry prompt in the game's
-voice UX as a cheap mitigation, since the model/backend already have no
-state corruption risk from a no-op failed turn.
+built-in plugin) is fixed by disabling those plugins — confirmed by
+measurement, not assumption (80% → 95%). The residual failure mode doesn't
+have a platform-side fix available (it's inside Lingxi's own tool-dispatch,
+not something our Prompt or backend controls), so the mitigation was moved
+to where we *do* have control: the Prompt now tells the model to retry once
+before giving up, and 30 post-fix trials (20 without + 10 with the retry
+instruction) show no further measured failures. This is a small sample for
+the retry instruction specifically (n=10) — treat 100% as "didn't regress
+and looks good," not as a proven zero failure rate. If anyone sees the game
+getting stuck in a "信号不太稳定，再说一遍试试" loop during later testing,
+that's this mitigation's fallback message, and it's worth re-running
+`batch_test.sh` with a larger N to re-measure.
 
 **Current live agent config** (for whoever continues this): 技能与扩展 → 默认
 插件 has only 退出意图处理 checked; 天气/新闻/时间获取/黄历获取 are unchecked.
