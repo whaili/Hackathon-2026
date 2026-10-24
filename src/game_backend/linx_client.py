@@ -83,8 +83,10 @@ class LingxiSession:
                 if data.get("type") == "hello":
                     return data
 
-    async def start_listening(self) -> None:
-        await self.socket.send(json.dumps({"type": "listen", "state": "start", "mode": "manual"}))
+    async def start_listening(self, mode: str = "manual") -> None:
+        if mode not in {"manual", "auto", "realtime"}:
+            raise ValueError(f"Unsupported listen mode: {mode}")
+        await self.socket.send(json.dumps({"type": "listen", "state": "start", "mode": mode}))
 
     async def send_opus(self, frame: bytes) -> None:
         await self.socket.send(frame)

@@ -21,6 +21,7 @@ Environment variables:
                    Default: https://10.210.34.33:18081
 """
 
+import argparse
 import asyncio
 import json
 import os
@@ -48,19 +49,33 @@ def create_room() -> str:
 
 
 async def main() -> None:
-    if len(sys.argv) < 2:
-        print(__doc__)
-        raise SystemExit(1)
-    pcm_file = sys.argv[1]
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("pcm_file")
+    parser.add_argument(
+        "--continuous",
+        action="store_true",
+        help="start the game and verify that a realtime STT result drives the state machine",
+    )
+    args = parser.parse_args()
+    pcm_file = args.pcm_file
 
     room_id = create_room()
     url = f"{BASE_WS}/ws/{room_id}?player_id={PLAYER_ID}"
     print(f"[ws] connecting {url}")
-    async with websockets.connect(url, ssl=ssl_ctx, open_timeout=15) as ws:
+    ssl_option = ssl_ctx if url.startswith("wss://") else None
+    async with websockets.connect(url, ssl=ssl_option, open_timeout=15) as ws:
         print(f"[ws] << {await ws.recv()}")
         print(f"[ws] << {await ws.recv()}")
 
-        await ws.send(json.dumps({"type": "linx_start", "sample_rate": 16000}))
+        if args.continuous:
+            await ws.send(json.dumps({"type": "game_start"}))
+            started = json.loads(await ws.recv())
+            print(f"[ws] << {started}")
+            if started.get("event", {}).get("type") != "game_started":
+                print("FAILED: game did not start")
+                return
+
+        await ws.send(json.dumps({"type": "linx_start", "sample_rate": 16000, "continuous": args.continuous}))
         print("[ws] >> linx_start")
 
         ready = json.loads(await ws.recv())
@@ -79,8 +94,9 @@ async def main() -> None:
             await ws.send(pcm[i : i + chunk])
             await asyncio.sleep(0.06)
 
-        await ws.send(json.dumps({"type": "linx_end"}))
-        print("[ws] >> linx_end")
+        if not args.continuous:
+            await ws.send(json.dumps({"type": "linx_end"}))
+            print("[ws] >> linx_end")
 
         async for raw in ws:
             msg = json.loads(raw)
@@ -89,6 +105,10 @@ async def main() -> None:
                 print(f"[ws] << linx_tts_wav ({len(msg.get('audio', ''))} base64 chars, omitted)")
             else:
                 print(f"[ws] << {msg}")
+            if args.continuous and msg_type == "event" and msg.get("event", {}).get("type") in {"action_applied", "alert_raised"}:
+                print("[ws] continuous state-machine event received, stopping listener")
+                await ws.send(json.dumps({"type": "linx_end"}))
+                break
             if msg_type == "linx_turn_complete":
                 print("[ws] turn complete, closing")
                 break
