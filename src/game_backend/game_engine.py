@@ -452,9 +452,116 @@ class SoloChallengeState:
         return {"type": event_type, "at": time.time(), **data}
 
 
+
+SIREN_LYRICS = (
+    "潮息归于静海",
+    "月光覆过船底",
+    "让歌声沉入梦乡",
+    "四海无声安眠",
+)
+
+
+@dataclass
+class SirenLullabyState:
+    """Four-bar soft singing challenge with an accessible text fallback."""
+
+    mode: str = "siren"
+    mode_title: str = "暴风雨夜 · 海妖安抚"
+    phase: str = "lobby"
+    alert_level: int = 0
+    max_alert_level: int = 1
+    duration_seconds: int = 90
+    started_at: float | None = None
+    ended_remaining_time: int | None = None
+    bar_index: int = 0
+    accessibility_mode: bool = False
+    error_count: int = 0
+    last_consequence: str = "通海阀门传来海妖歌声，准备轻声安抚。"
+
+    def remaining_time(self, now: float | None = None) -> int:
+        if self.phase != "active" or self.started_at is None:
+            return self.duration_seconds if self.phase == "lobby" else self.ended_remaining_time or 0
+        current = time.time() if now is None else now
+        return max(0, self.duration_seconds - max(0, int(current - self.started_at)))
+
+    def public_state(self, now: float | None = None) -> dict[str, Any]:
+        return {
+            "mode": self.mode, "mode_title": self.mode_title, "phase": self.phase,
+            "objective": "连续 4 小节轻声哼唱安抚咒文，让海妖沉睡",
+            "alert_level": self.alert_level, "max_alert_level": self.max_alert_level,
+            "remaining_time": self.remaining_time(now), "bar": self.bar_index,
+            "completed_items": list(SIREN_LYRICS[:self.bar_index]), "next_item": SIREN_LYRICS[self.bar_index] if self.bar_index < len(SIREN_LYRICS) else None,
+            "bar_count": len(SIREN_LYRICS), "lyrics": list(SIREN_LYRICS),
+            "current_lyric": SIREN_LYRICS[self.bar_index] if self.bar_index < len(SIREN_LYRICS) else None,
+            "accessibility_mode": self.accessibility_mode, "error_count": self.error_count,
+            "last_consequence": self.last_consequence,
+            "voice_examples": ["轻声哼唱当前咒文", "逐句跟读（无障碍模式）"],
+        }
+
+    def start(self, now: float | None = None) -> dict[str, Any]:
+        self.phase = "active"; self.alert_level = 0; self.bar_index = 0
+        self.error_count = 0; self.ended_remaining_time = None
+        self.started_at = now if now is not None else time.time()
+        self.last_consequence = "暴风雨压低了船身。请跟着节拍，轻声念出第一句咒文。"
+        return self._event("game_started", consequence=self.last_consequence, narration=self.last_consequence)
+
+    def tick(self, now: float | None = None) -> dict[str, Any] | None:
+        if self.phase == "active" and self.remaining_time(now) == 0:
+            self.phase = "lost"; self.ended_remaining_time = 0
+            self.last_consequence = "倒计时归零，海妖冲破了通海阀门。"
+            return self._event("game_lost", reason="timeout", consequence=self.last_consequence)
+        return None
+
+    def process_utterance(self, player_id: str, text: str, source: str = "stt") -> list[dict[str, Any]]:
+        text = text.strip()[:200]
+        if not text: return []
+        events = [self._event("transcript", player_id=player_id, text=text, source=source)]
+        if self.phase != "active": return events
+        # Text-only fallback checks the lyric and a stable spoken cadence supplied by the client.
+        if self.accessibility_mode:
+            return events + self.process_metrics(player_id, text=text, tempo=1.0, source=source)
+        return events
+
+    def process_metrics(self, player_id: str, pitch: float | None = None, volume: float | None = None,
+                        tempo: float | None = None, text: str | None = None,
+                        accessibility: bool | None = None, source: str = "audio") -> list[dict[str, Any]]:
+        if accessibility is not None: self.accessibility_mode = bool(accessibility)
+        if self.phase != "active": return []
+        expected = SIREN_LYRICS[self.bar_index] if self.bar_index < len(SIREN_LYRICS) else ""
+        lyric_ok = text is not None and normalize(expected) in normalize(text)
+        tempo_ok = tempo is not None and abs(float(tempo) - 1.0) <= 0.20
+        pitch_ok = self.accessibility_mode or (pitch is not None and abs(float(pitch)) <= 2.0)
+        volume_ok = self.accessibility_mode or (volume is not None and 0.0 <= float(volume) <= 0.35)
+        valid = lyric_ok and tempo_ok if self.accessibility_mode else pitch_ok and volume_ok and tempo_ok
+        if not valid:
+            self.error_count += 1; self.alert_level = 1; self.phase = "lost"
+            self.ended_remaining_time = self.remaining_time();
+            reasons = []
+            if not self.accessibility_mode and not pitch_ok: reasons.append("音调跑了")
+            if not self.accessibility_mode and not volume_ok: reasons.append("声音太大")
+            if not tempo_ok: reasons.append("语速偏离节拍")
+            if self.accessibility_mode and not lyric_ok: reasons.append("咒文不匹配")
+            self.last_consequence = f"{'、'.join(reasons) or '安抚失败'}，海妖躁动，队友陷入狂乱。"
+            return [self._event("frenzy", player_id=player_id, reason=reasons, consequence=self.last_consequence,
+                                distortion=True, npc_attack=True, source=source)]
+        self.bar_index += 1
+        if self.bar_index == len(SIREN_LYRICS):
+            self.phase = "won"; self.ended_remaining_time = self.remaining_time()
+            self.last_consequence = "四小节咒文完整落下，海妖沉睡，船底恢复平静。"
+            return [self._event("game_won", player_id=player_id, consequence=self.last_consequence,
+                                narration=self.last_consequence, source=source)]
+        self.last_consequence = f"第 {self.bar_index} 小节稳定。继续轻声跟随节拍。"
+        return [self._event("bar_completed", player_id=player_id, bar=self.bar_index,
+                            current_lyric=SIREN_LYRICS[self.bar_index], consequence=self.last_consequence, source=source)]
+
+    def _event(self, event_type: str, **data: Any) -> dict[str, Any]:
+        return {"type": event_type, "at": time.time(), **data}
+
 def create_game(mode: str) -> GameEngine:
     if mode == "solo":
         return SoloChallengeState()
     if mode == "duo":
         return GameState()
+    if mode in {"siren", "lullaby"}:
+        return SirenLullabyState()
     raise ValueError(f"Unsupported game mode: {mode}")

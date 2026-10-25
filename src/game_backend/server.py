@@ -219,8 +219,8 @@ async def mcp_message(request: Request) -> Response:
 @app.post("/api/rooms")
 async def create_room(payload: dict[str, Any] | None = Body(default=None)) -> dict[str, Any]:
     mode = str((payload or {}).get("mode", "solo")).strip().lower()
-    if mode not in {"solo", "duo"}:
-        raise HTTPException(status_code=422, detail="mode must be solo or duo")
+    if mode not in {"solo", "duo", "siren"}:
+        raise HTTPException(status_code=422, detail="mode must be solo, duo, or siren")
     room_id = secrets.token_urlsafe(4).upper()
     async with rooms_lock:
         rooms[room_id] = Room(room_id=room_id, mode=mode)
@@ -295,6 +295,20 @@ async def room_socket(websocket: WebSocket, room_id: str, player_id: str = "") -
                 if not action:
                     continue
                 await publish_game_events(room, room.game.process_utterance(player_id, action, source="action"))
+            elif kind == "siren_metrics":
+                # Browser audio analysis sends normalized pitch (semitones), RMS volume,
+                # and tempo ratio; accessibility mode sends lyric text instead.
+                if room.mode != "siren":
+                    continue
+                await publish_game_events(room, room.game.process_metrics(
+                    player_id, pitch=message.get("pitch"), volume=message.get("volume"),
+                    tempo=message.get("tempo"), text=message.get("text"),
+                    accessibility=message.get("accessibility"), source="audio",
+                ))
+            elif kind == "siren_accessibility":
+                if room.mode == "siren" and hasattr(room.game, "accessibility_mode"):
+                    room.game.accessibility_mode = bool(message.get("enabled"))
+                    await broadcast(room, {"type": "state", "state": room.public_state()})
             elif kind == "ping":
                 await websocket.send_json({"type": "pong"})
             elif kind == "audio_start":
