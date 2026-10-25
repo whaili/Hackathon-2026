@@ -174,6 +174,21 @@ Chromium 在启动时选择虚拟麦克风文件，因此当前 runner 每换一
 不代表已验证整局无重连持续监听、自然抢话、真实扬声器回声或真人趣味性。
 动作由确定性线索解析器选择，尚未使用自主 AI 玩家。
 
+### 整局持续会话模式（Linux）
+
+安装 `pulseaudio`、`pulseaudio-utils` 后，给上述命令增加 `--continuous`：
+
+```bash
+LINX_DEVICE_IDS='<设备 A>,<设备 B>' \
+python3 src/game_backend/tools/browser_voice_e2e.py --serve-local --continuous
+```
+
+该模式启动一个私有临时 PulseAudio 实例，为两位玩家各建立独立的虚拟麦克风，通过页面的“麦克风”选择器选中它们。
+合成 WAV 经系统音频设备实时播放给浏览器，保持真实 `getUserMedia`、AudioWorklet、WebSocket 和灵矽连接。
+整局不重启浏览器、不更换麦克风流、不停止监听，并断言每人只出现一次 `connected` 和一次 `linx_ready`。
+不使用 Chromium 假设备、浏览器 API 覆盖或文字动作注入。两名玩家的扬声器输出与麦克风隔离，因此仍不覆盖真实声学回声。
+测试结束自动停止私有 PulseAudio 实例，不修改现有系统音频服务。故障日志保存在 `pulse.log`。
+
 ## 新功能的测试约定
 
 以后新增一个游戏模式、动作或多人规则时，按下面顺序补测试：
