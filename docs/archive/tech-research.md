@@ -1,6 +1,6 @@
 # 技术预研究文档：灵矽平台
 
-> 上级文档：[project-overview.md](./project-overview.md)。本文件记录灵矽（Lingxi/Xrobot）平台的能力边界、
+> 上级文档：[project-overview.md](../project-overview.md)。本文件记录灵矽（Lingxi/Xrobot）平台的能力边界、
 > 客户端选型调研，以及已经实测验证过的免硬件开发方案，供设计具体游戏架构时参考。
 
 ## 平台简介

@@ -1,8 +1,7 @@
 # 项目介绍
 
 > 面向任何接手此项目的人或 Code Agent 的入口文档。读完这份后，技术细节看
-> [tech-research.md](./tech-research.md)，产品候选和评估看 [../ideas/README.md](../ideas/README.md) 与
-> [../ideas/evaluation.md](../ideas/evaluation.md)。
+> 技术架构看 [architecture.md](./architecture.md)，运维看 [operations.md](./operations.md)。历史候选和选型记录在 [archive/](archive/)。
 
 ## 这是什么项目
 
@@ -36,8 +35,7 @@
   具体玩法
 - 团队偏好：优先不强制需要硬件的项目；差异化 > 单纯炫技；工期可控 > 规则完整度（1-3 人、3 天 2 夜）
 
-已有候选方案及其完整提案见 [../ideas/README.md](../ideas/README.md)，统一评估见
-[../ideas/evaluation.md](../ideas/evaluation.md)。
+早期候选方案和统一评估保存在 [archive/ideas/](archive/ideas/)，当前产品文档不依赖它们才能运行。
 
 ## 曾评估后放弃的方向
 
@@ -49,27 +47,28 @@
 ## 当前进度
 
 - [x] 产品大方向确定：基于灵矽开发语音类游戏
-- [x] 灵矽平台能力调研（见 tech-research.md）
-- [x] 完成第一阶段市场调研与候选方案收集；统一评估见 [../ideas/evaluation.md](../ideas/evaluation.md)
-- [x] 免硬件开发路径验证（控制台 MAC 预注册 + client-demo 编译运行，OTA 认证打通，见 tech-research.md）
-- [x] 团队候选 Ideas 收集：目前共 8 个方案，见 [../ideas/README.md](../ideas/README.md)
+- [x] 灵矽平台能力调研（见 [archive/tech-research.md](archive/tech-research.md)）
+- [x] 完成第一阶段市场调研与候选方案收集（历史记录见 [archive/ideas/](archive/ideas/)）
+- [x] 免硬件开发路径验证（控制台 MAC 预注册 + client-demo 编译运行，OTA 认证打通）
+- [x] 团队候选 Ideas 收集（历史记录见 [archive/ideas/](archive/ideas/)）
 - [x] 确定产品方向：异地朋友/情侣的双人语音密室
-- [ ] 完成首个 10–15 分钟双人章节：角色分工、信息差、一次反转和明确结局
+- [x] 完成首个双人序章：角色分工、信息差、一次反转和明确结局
 - [ ] 做出免费序章到付费章节的内容入口和邀请路径
 - [x] 用双人文字 E2E 验证私有线索、角色授权、监听者学习与三阶段通关
 - [ ] 接入自主 AI 玩家及事件评审；体验和商业需求尚未验证
 - [x] 双人同时经过灵矽持续监听的真实浏览器语音回归；文字 E2E 仍独立运行
-- [ ] 双人私有线索、监听风险和章节结算的状态机设计
+- [x] 双人私有线索、监听风险和章节结算的状态机设计
 - [x] 浏览器客户端、双人私有线索展示、邀请链接和结局接入
-- [ ] 联调、demo 录制、提交
+- [x] 联调、Demo 录制和 GitHub 提交
 
 ## 协作说明
 
-本项目的文档分为技术调研、候选方案和评估记录，任何接手的人或 Code Agent 建议按顺序读：
+当前文档按产品、设计、架构和运维分类，建议按以下顺序读：
 
-1. `docs/project-overview.md`（本文件）——项目背景、约束、当前进度
-2. `docs/tech-research.md`——灵矽平台技术预研究：能力边界、客户端选型、已验证的免硬件开发方案
-3. `ideas/README.md`——团队候选方案入口
-4. `ideas/evaluation.md`——统一评估标准、硬门槛和竞价记录
+1. `docs/README.md`——当前文档总入口
+2. `docs/project-overview.md`（本文件）——项目背景、约束、当前进度
+3. `docs/game-design.md`——玩法和章节规则
+4. `docs/architecture.md`——技术架构
+5. `docs/operations.md`——运行、发布和排障
 
-方向、调研结论或约束发生变化时，请持续更新对应文档，保持三份文档与实际进展同步。
+方向或约束发生变化时，更新当前文档；历史调研只在需要追溯决策时查阅 `docs/archive/`。

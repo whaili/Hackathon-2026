@@ -18,6 +18,8 @@
 
 当前演示入口为 <https://10.210.34.33:18081/>。该地址使用自签名证书，首次访问需要在浏览器中手动继续访问；正式演示前仍应替换为受信任的稳定 HTTPS 域名。
 
+最终演示视频集中在 [demos/README.md](demos/README.md)：[单人](demo.mp4) 和 [双人](demos/duo.mp4)。
+
 新增功能先跑文字回归，再按 [双人真实浏览器语音测试](src/game_backend/tools/README.md#双人真实浏览器语音全链路测试)
 验证麦克风、灵矽 ASR 与页面结局；双人并发需配置两个不同预注册设备的 `LINX_DEVICE_IDS`。
 
@@ -25,12 +27,14 @@
 
 接手此项目的人或 Code Agent，建议按顺序阅读：
 
-1. [docs/project-overview.md](docs/project-overview.md) — 项目介绍：活动信息、硬性约束、候选方向、当前进度
-2. [docs/tech-research.md](docs/tech-research.md) — 技术预研究：灵矽平台能力边界、客户端选型、已验证的免硬件开发方案
-3. [docs/game-design.md](docs/game-design.md) — 下一阶段玩法规格草案：语音唯一输入、单人挑战、双人信息不对称协作和验收标准
-4. [ideas/README.md](ideas/README.md) — 团队成员提交的候选游戏方案
-   - [ideas/evaluation.md](ideas/evaluation.md) — 统一评分标准、评估结果和团队竞价表
-5. [src/game_backend/README.md](src/game_backend/README.md) — 游戏后端技术手册：架构、开发、部署、灵矽/MCP 控制台配置、测试、端到端验证和已知问题
-6. [docs/demo-walkthrough.md](docs/demo-walkthrough.md) — 双人章节演示顺序、自动录制与验证边界
+1. [docs/README.md](docs/README.md) — 文档总入口
+2. [docs/project-overview.md](docs/project-overview.md) — 产品定位、交付要求和当前状态
+3. [docs/game-design.md](docs/game-design.md) — 游戏规则和双人章节设计
+4. [docs/architecture.md](docs/architecture.md) — 技术架构与安全边界
+5. [docs/operations.md](docs/operations.md) — 本地运行、发布、配置和排障
+6. [src/game_backend/README.md](src/game_backend/README.md) — 后端接口和测试工具详细手册
+7. [docs/demo-walkthrough.md](docs/demo-walkthrough.md) — 演示顺序、自动录制和验证边界
+
+早期候选方案和选型记录已归档到 [docs/archive/](docs/archive/)。
 
 方向、调研结论或约束发生变化时，请持续更新对应文档，保持同步。
