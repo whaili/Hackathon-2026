@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .audio_codec import OpusPcm16Decoder, Pcm16OpusEncoder
 from .game_engine import GameEngine, create_game
-from .linx_client import LingxiSession, configured_device_id
+from .linx_client import LingxiSession, PooledLingxiSession
 
 
 ROOT = Path(__file__).parent
@@ -62,6 +62,13 @@ async def publish_game_events(room: Room, events: list[dict[str, Any]]) -> None:
     state = room.public_state()
     for event in events:
         await broadcast(room, {"type": "event", "event": event, "state": state})
+    if room.mode == "duo":
+        for player_id, socket in list(room.sockets.items()):
+            try:
+                await socket.send_json(room.game.private_briefing(player_id))
+            except Exception:
+                if room.sockets.get(player_id) is socket:
+                    room.sockets.pop(player_id, None)
 
 
 async def run_game_timer(room: Room) -> None:
@@ -78,6 +85,11 @@ async def run_game_timer(room: Room) -> None:
 
 
 async def start_game(room: Room) -> None:
+    if room.mode == "duo" and len(room.sockets) != 2:
+        await broadcast(room, {"type": "notice", "text": "等待两名玩家连接后再开始。"})
+        return
+    if room.game.phase == "active":
+        return
     if room.timer_task is not None:
         room.timer_task.cancel()
     await publish_game_events(room, [room.game.start()])
@@ -252,12 +264,17 @@ async def room_socket(websocket: WebSocket, room_id: str, player_id: str = "") -
     if room is None:
         await websocket.close(code=4404, reason="room not found")
         return
-    await websocket.accept()
     player_id = player_id.strip() or f"player-{secrets.token_hex(2)}"
+    if room.mode == "duo" and (player_id in room.sockets or not room.game.register(player_id)):
+        await websocket.close(code=4409, reason="two distinct players only")
+        return
+    await websocket.accept()
     room.sockets[player_id] = websocket
     room.players[player_id] = player_id
     await websocket.send_json({"type": "connected", "player_id": player_id, "state": room.public_state()})
     await broadcast(room, {"type": "state", "state": room.public_state()})
+    if room.mode == "duo" and room.game.phase != "lobby":
+        await websocket.send_json(room.game.private_briefing(player_id))
     lingxi: LingxiSession | None = None
     lingxi_task: asyncio.Task[None] | None = None
     encoder: Pcm16OpusEncoder | None = None
@@ -330,7 +347,7 @@ async def room_socket(websocket: WebSocket, room_id: str, player_id: str = "") -
                     await websocket.send_json({"type": "linx_error", "message": "Expected 16 kHz PCM16 from browser"})
                     continue
                 try:
-                    lingxi = LingxiSession(configured_device_id())
+                    lingxi = PooledLingxiSession()
                     hello = await lingxi.connect()
                     session_id = hello.get("session_id")
                     if session_id:

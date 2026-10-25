@@ -32,19 +32,45 @@ class ServerStateMachineTests(unittest.TestCase):
         if task:
             task.cancel()
 
-    def test_websocket_text_drives_the_same_state_machine(self) -> None:
+    def test_duo_requires_two_connected_players_to_start(self) -> None:
         with TestClient(app) as client:
             room_id = client.post("/api/rooms", json={"mode": "duo"}).json()["room_id"]
             with client.websocket_connect(f"/ws/{room_id}?player_id=tester") as socket:
                 socket.receive_json()
                 socket.receive_json()
                 socket.send_json({"type": "game_start"})
-                self.assertEqual(socket.receive_json()["event"]["type"], "game_started")
-                socket.send_json({"type": "say", "text": "拿起钥匙"})
-                self.assertEqual(socket.receive_json()["event"]["type"], "transcript")
-                action = socket.receive_json()
-                self.assertEqual(action["event"]["type"], "action_applied")
-                self.assertEqual(action["state"]["held_items"], {"tester": "钥匙"})
+                self.assertEqual(socket.receive_json()["type"], "notice")
+                self.assertEqual(rooms[room_id].game.phase, "lobby")
+        task = rooms[room_id].timer_task
+        if task:
+            task.cancel()
+
+    def test_duo_players_receive_distinct_private_briefings(self) -> None:
+        with TestClient(app) as client:
+            room_id = client.post("/api/rooms", json={"mode": "duo"}).json()["room_id"]
+            with client.websocket_connect(f"/ws/{room_id}?player_id=alice") as alice:
+                alice.receive_json()
+                alice.receive_json()
+                with client.websocket_connect(f"/ws/{room_id}?player_id=bob") as bob:
+                    bob.receive_json()
+                    bob.receive_json()
+                    alice.send_json({"type": "game_start"})
+                    alice_messages = [alice.receive_json()]
+                    while alice_messages[-1].get("event", {}).get("type") != "game_started":
+                        alice_messages.append(alice.receive_json())
+                    bob_messages = [bob.receive_json()]
+                    while bob_messages[-1].get("event", {}).get("type") != "game_started":
+                        bob_messages.append(bob.receive_json())
+                    alice_briefing = alice.receive_json()
+                    bob_briefing = bob.receive_json()
+        self.assertEqual(alice_briefing["type"], "private_briefing")
+        self.assertEqual(bob_briefing["type"], "private_briefing")
+        self.assertNotEqual(alice_briefing["role"], bob_briefing["role"])
+        self.assertIn("对应", alice_briefing["text"])
+        self.assertIn("安全符号是", bob_briefing["text"])
+        public = client.get(f"/api/rooms/{room_id}").json()
+        self.assertNotIn("puzzles", public)
+        self.assertNotIn("roles", public)
         task = rooms[room_id].timer_task
         if task:
             task.cancel()

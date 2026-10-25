@@ -109,3 +109,37 @@ def configured_device_id() -> str:
     if not device_id:
         raise RuntimeError("LINX_DEVICE_ID is required")
     return device_id
+
+
+def configured_device_ids() -> list[str]:
+    """A distinct pre-registered device is required for each live player."""
+    values = os.environ.get("LINX_DEVICE_IDS", "").strip()
+    if not values:
+        return [configured_device_id().upper()]
+    devices = [value.strip().upper() for value in values.split(",") if value.strip()]
+    if not devices or len(set(devices)) != len(devices):
+        raise RuntimeError("LINX_DEVICE_IDS must contain distinct registered device IDs")
+    return devices
+
+
+_leased_devices: set[str] = set()
+
+
+class PooledLingxiSession(LingxiSession):
+    """Reserve one device within this server process until the session closes."""
+
+    def __init__(self) -> None:
+        device = next((device for device in configured_device_ids() if device not in _leased_devices), None)
+        if device is None:
+            raise RuntimeError("语音设备已占用；双人同时监听需要 LINX_DEVICE_IDS 配置两个不同的预注册设备。")
+        super().__init__(device)
+        _leased_devices.add(device)
+        self.released = False
+
+    async def close(self) -> None:
+        try:
+            await super().close()
+        finally:
+            if not self.released:
+                _leased_devices.discard(self.device_id)
+                self.released = True

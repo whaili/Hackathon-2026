@@ -2,6 +2,10 @@
 .github/
 __pycache__/
 *.pyc
+src/game_backend/tools/artifacts/
+src/game_backend/tools/audio/
+.cc-connect/
+deploy/.env
 docs/
 ideas/
 README.md
