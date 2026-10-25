@@ -31,5 +31,6 @@
 4. [ideas/README.md](ideas/README.md) — 团队成员提交的候选游戏方案
    - [ideas/evaluation.md](ideas/evaluation.md) — 统一评分标准、评估结果和团队竞价表
 5. [src/game_backend/README.md](src/game_backend/README.md) — 游戏后端技术手册：架构、开发、部署、灵矽/MCP 控制台配置、测试、端到端验证和已知问题
+6. [docs/demo-walkthrough.md](docs/demo-walkthrough.md) — 双人章节演示顺序、自动录制与验证边界
 
 方向、调研结论或约束发生变化时，请持续更新对应文档，保持同步。

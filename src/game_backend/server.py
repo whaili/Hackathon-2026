@@ -81,7 +81,8 @@ async def run_game_timer(room: Room) -> None:
             else:
                 await broadcast(room, {"type": "state", "state": room.public_state()})
     finally:
-        room.timer_task = None
+        if room.timer_task is asyncio.current_task():
+            room.timer_task = None
 
 
 async def start_game(room: Room) -> None:
@@ -273,6 +274,8 @@ async def room_socket(websocket: WebSocket, room_id: str, player_id: str = "") -
     room.players[player_id] = player_id
     await websocket.send_json({"type": "connected", "player_id": player_id, "state": room.public_state()})
     await broadcast(room, {"type": "state", "state": room.public_state()})
+    if room.mode == "duo" and len(room.sockets) == 2:
+        await publish_game_events(room, room.game.resume())
     if room.mode == "duo" and room.game.phase != "lobby":
         await websocket.send_json(room.game.private_briefing(player_id))
     lingxi: LingxiSession | None = None
@@ -406,4 +409,6 @@ async def room_socket(websocket: WebSocket, room_id: str, player_id: str = "") -
         if room.sockets.get(player_id) is websocket:
             room.sockets.pop(player_id, None)
         room.players.pop(player_id, None)
+        if room.mode == "duo":
+            await publish_game_events(room, room.game.pause())
         await broadcast(room, {"type": "state", "state": room.public_state()})

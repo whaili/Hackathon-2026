@@ -11,6 +11,29 @@ from game_backend.server import (
 
 
 class ServerStateMachineTests(unittest.TestCase):
+    def receive_event(self, socket, event_type):
+        while True:
+            message = socket.receive_json()
+            if message.get("event", {}).get("type") == event_type:
+                return message
+
+    def test_duo_disconnect_pauses_and_same_identity_resumes(self):
+        with TestClient(app) as client:
+            room_id = client.post("/api/rooms", json={"mode": "duo"}).json()["room_id"]
+            with client.websocket_connect(f"/ws/{room_id}?player_id=alice") as alice:
+                with client.websocket_connect(f"/ws/{room_id}?player_id=bob") as bob:
+                    alice.send_json({"type": "game_start"})
+                    self.receive_event(alice, "game_started")
+                    self.receive_event(bob, "game_started")
+                    role = rooms[room_id].game.roles["bob"]
+                paused = self.receive_event(alice, "partner_disconnected")
+                self.assertTrue(paused["state"]["paused"])
+                with client.websocket_connect(f"/ws/{room_id}?player_id=bob") as reconnected:
+                    resumed = self.receive_event(alice, "partner_reconnected")
+                    self.assertFalse(resumed["state"]["paused"])
+                    self.assertEqual(rooms[room_id].game.roles["bob"], role)
+                    self.receive_event(reconnected, "partner_reconnected")
+
     def test_room_mode_selects_the_solo_engine(self) -> None:
         with TestClient(app) as client:
             response = client.post("/api/rooms", json={"mode": "solo"})
