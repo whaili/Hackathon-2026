@@ -20,6 +20,11 @@ from urllib.parse import parse_qs, urlparse
 
 from playwright.async_api import async_playwright
 
+try:
+    from .pulse_microphones import PulseMicrophones
+except ImportError:
+    from pulse_microphones import PulseMicrophones
+
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -89,9 +94,13 @@ class Player:
         return next((msg for msg in reversed(self.received) if msg.get("type") == "private_briefing"), None)
 
     async def launch(self, wav, room=None):
-        args = ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream",
-                f"--use-file-for-fake-audio-capture={wav}%noloop", "--autoplay-policy=no-user-gesture-required"]
+        args = ["--use-fake-ui-for-media-stream", "--autoplay-policy=no-user-gesture-required"]
+        if not self.options.continuous:
+            args += ["--use-fake-device-for-media-stream", f"--use-file-for-fake-audio-capture={wav}%noloop"]
         kwargs = {"headless": True, "args": args}
+        if self.options.continuous:
+            kwargs["env"] = {**os.environ, "PULSE_SERVER": self.options.pulse.server,
+                             "PULSE_SOURCE": self.options.pulse.sink(self.name) + "_mic", "PULSE_SINK": "e2e_output"}
         if self.options.chromium:
             kwargs["executable_path"] = self.options.chromium
         self.browser = await self.playwright.chromium.launch(**kwargs)
@@ -113,6 +122,10 @@ class Player:
 
     async def listen(self):
         begin = len(self.received)
+        if self.options.continuous:
+            await self.page.locator("#microphone").wait_for()
+            await self.page.wait_for_function("label => Array.from(document.querySelector('#microphone').options).some(o => o.textContent === label)", arg=self.options.pulse.label(self.name))
+            await self.page.locator("#microphone").select_option(label=self.options.pulse.label(self.name))
         await self.page.locator("#listen").click()
         ready = await wait_until(
             lambda: next((m for m in self.received[begin:] if m.get("type") in {"linx_ready", "linx_error"}), None),
@@ -150,6 +163,9 @@ async def run(options, report):
     with wave.open(str(silence), "wb") as output:
         output.setparams((1, 2, 48000, 0, "NONE", "not compressed"))
         output.writeframes(b"\0\0" * 48000 * 2)
+    if options.continuous:
+        options.pulse = PulseMicrophones(directory)
+        await options.pulse.start(("alice-voice", "bob-voice"))
     async with async_playwright() as playwright:
         alice, bob = [Player(name, options, playwright) for name in ("alice-voice", "bob-voice")]
         players = (alice, bob)
@@ -180,27 +196,33 @@ async def run(options, report):
                     # Chromium selects its fake WAV at process launch. Rejoin
                     # with the same role for every new phrase; the peer stays
                     # connected and listening. No browser API is monkeypatched.
-                    await actor.close()
-                    observer = alice if actor is bob else bob
-                    await wait_until(lambda: actor.name not in observer.state.get("players", {}), "disconnect broadcast")
-                    actor.archived_messages.extend(actor.received)
-                    actor.received = []
-                    await actor.launch(wav, room)
+                    if not options.continuous:
+                        await actor.close()
+                        observer = alice if actor is bob else bob
+                        await wait_until(lambda: actor.name not in observer.state.get("players", {}), "disconnect broadcast")
+                        actor.archived_messages.extend(actor.received)
+                        actor.received = []
+                        await actor.launch(wav, room)
                     starts = {p.name: len(p.received) for p in players}
-                    session = await actor.listen()
-                    report["sessions"].append(session)
+                    if options.continuous:
+                        await options.pulse.play(actor.name, wav)
+                    else:
+                        session = await actor.listen()
+                        report["sessions"].append(session)
                     for player in players:
                         await wait_until(
                             lambda p=player: any(m.get("event", {}).get("type") == expected for m in p.received[starts[p.name]:]),
                             f"{player.name}: {text} -> {expected}", options.timeout,
                         )
-                    recognized = [m["event"]["text"] for m in actor.received
+                    recognized = [m["event"]["text"] for m in actor.received[starts[actor.name]:]
                                   if m.get("type") == "linx_event" and m.get("event", {}).get("type") == "stt"]
                     if not recognized:
                         raise AssertionError("game progressed without observed real STT")
                     for player in players:
                         await wait_until(lambda p=player: p.briefing and p.briefing["stage"] == stage + (2 if actor is alice else 1), "updated private clues")
-                    assert alice.state == bob.state, "public room states diverged"
+                    snapshots = [next(m["state"] for m in reversed(p.received[starts[p.name]:])
+                                      if m.get("event", {}).get("type") == expected) for p in players]
+                    assert snapshots[0] == snapshots[1], "public transition states diverged"
                     for player in players:
                         upstream_errors = [m["message"] for m in player.archived_messages + player.received if m.get("type") == "linx_error"]
                         assert not upstream_errors, upstream_errors
@@ -214,9 +236,13 @@ async def run(options, report):
                 assert player.binary_frames > 0
                 assert not set(player.sent_types) & {"say", "action", "siren_metrics"}
                 assert not player.errors, player.errors
+                if options.continuous:
+                    assert sum(m.get("type") == "connected" for m in player.received) == 1
+                    assert sum(m.get("type") == "linx_ready" for m in player.received) == 1
             report.update(ok=True, final_state=alice.state,
                           checks={"real_microphone_frames": True, "real_lingxi_stt": True,
-                                  "no_text_action_injection": True, "both_pages_show_ending": True})
+                                  "no_text_action_injection": True, "both_pages_show_ending": True,
+                                  "continuous_without_reconnect": options.continuous})
         finally:
             report["players"] = [{"name": p.name, "binary_frames": p.binary_frames,
                                   "sent_types": p.sent_types, "page_errors": p.errors,
@@ -225,6 +251,8 @@ async def run(options, report):
                 if player.page and not player.page.is_closed():
                     await player.page.screenshot(path=str(directory / f"final-{player.name}.png"))
             await asyncio.gather(*(p.close() for p in players), return_exceptions=True)
+            if options.continuous:
+                await options.pulse.close()
 
 
 async def main():
@@ -234,6 +262,7 @@ async def main():
     parser.add_argument("--chromium", help="installed Chromium executable (otherwise Playwright's installed browser)")
     parser.add_argument("--insecure", action="store_true", help="allow self-signed HTTPS in this test only")
     parser.add_argument("--timeout", type=int, default=45)
+    parser.add_argument("--continuous", action="store_true", help="Linux PulseAudio virtual microphones; keep both sessions open for the whole game")
     parser.add_argument("--output", type=Path, default=Path("src/game_backend/tools/artifacts/browser-voice"))
     options = parser.parse_args()
     options.base_url = options.base_url.rstrip("/")
