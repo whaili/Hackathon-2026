@@ -57,12 +57,13 @@ async def wait_until(check, description, timeout=40):
 class Player:
     def __init__(self, name, options, playwright):
         self.name, self.options, self.playwright = name, options, playwright
-        self.browser = self.page = None
+        self.browser = self.page = self.context = None
         self.received = []
         self.archived_messages = []
         self.sent_types = []
         self.binary_frames = 0
         self.errors = []
+        self.video_started = None
 
     def watch_socket(self, socket):
         if "/ws/" not in socket.url:
@@ -107,8 +108,12 @@ class Player:
         context = await self.browser.new_context(
             permissions=["microphone", "clipboard-read", "clipboard-write"],
             ignore_https_errors=self.options.insecure, viewport={"width": 1280, "height": 960},
+            **({"record_video_dir": str(self.options.output.resolve() / "videos" / self.name)} if self.options.record_video else {}),
+            **({"record_video_size": {"width": 1280, "height": 960}} if self.options.record_video else {}),
         )
+        self.context = context
         self.page = await context.new_page()
+        self.video_started = time.monotonic()
         self.page.on("websocket", self.watch_socket)
         self.page.on("pageerror", lambda error: self.errors.append(str(error)))
         url = self.options.base_url + (f"?room={room}" if room else "")
@@ -136,13 +141,17 @@ class Player:
         return ready["session_id"]
 
     async def close(self):
-        if self.page and not self.page.is_closed():
-            # Stop through the real UI to clean up the upstream session.
-            if await self.page.locator("#listen").evaluate("e => e.classList.contains('live')"):
-                await self.page.locator("#listen").click()
-        if self.browser:
-            await self.browser.close()
-        self.browser = self.page = None
+        try:
+            if self.page and not self.page.is_closed():
+                # Stop through the real UI to clean up the upstream session.
+                if await self.page.locator("#listen").evaluate("e => e.classList.contains('live')"):
+                    await self.page.locator("#listen").click()
+        finally:
+            if self.context:
+                await self.context.close()
+            if self.browser:
+                await self.browser.close()
+            self.browser = self.page = self.context = None
 
 
 async def synthesize(text, directory):
@@ -186,12 +195,28 @@ async def run(options, report):
             report["sessions"] = [await alice.listen(), await bob.listen()]
             assert len(set(report["sessions"])) == 2, "Lingxi reused one session for both players"
 
+            if options.continuous:
+                starts = {p.name: len(p.received) for p in players}
+                greetings = await asyncio.gather(*(synthesize(text, directory) for text in ("我能听见你", "我们准备好了")))
+                await asyncio.gather(*(options.pulse.play(p.name, wav) for p, wav in zip(players, greetings)))
+                for player in players:
+                    await wait_until(lambda p=player: any(m.get("type") == "linx_event" and m.get("event", {}).get("type") == "stt"
+                                                         for m in p.received[starts[p.name]:]), "overlapping speech recognized", options.timeout)
+                report["overlap_check"] = {p.name: [m["event"]["text"] for m in p.received[starts[p.name]:]
+                                                    if m.get("type") == "linx_event" and m.get("event", {}).get("type") == "stt"] for p in players}
+                for player, keyword in zip(players, ("听见", "准备")):
+                    assert any(keyword in text for text in report["overlap_check"][player.name]), "overlapping microphone inputs were misrouted"
+
             for stage in range(3):
-                target = re.search(r"安全符号是(.*?)。", bob.briefing["text"]).group(1)
-                signals = re.search(re.escape(target) + r"对应(.*?)，也可以描述为(.*?)(?:；|。)", alice.briefing["text"]).groups()
-                phrase = next(s for s in signals if not any(w in s for w in alice.state["forbidden_words"]))
-                for actor, text, expected in ((bob, f"授权{target}", "authorization_granted"),
-                                              (alice, f"校准{phrase}", "game_won" if stage == 2 else "stage_completed")):
+                if stage == 2:
+                    turns = ((bob, "确认撤离", "choice_recorded"), (alice, "确认撤离", "game_won"))
+                else:
+                    target = re.search(r"安全符号是(.*?)。", bob.briefing["text"]).group(1)
+                    signals = re.search(re.escape(target) + r"对应(.*?)，也可以描述为(.*?)(?:；|。)", alice.briefing["text"]).groups()
+                    phrase = next(s for s in signals if not any(w in s for w in alice.state["forbidden_words"]))
+                    turns = ((bob, f"{'识别伪装，安全符号是' if stage else '授权'}{target}", "authorization_granted"),
+                             (alice, f"校准{phrase}", "stage_completed"))
+                for actor, text, expected in turns:
                     wav = await synthesize(text, directory)
                     # Chromium selects its fake WAV at process launch. Rejoin
                     # with the same role for every new phrase; the peer stays
@@ -205,6 +230,7 @@ async def run(options, report):
                         await actor.launch(wav, room)
                     starts = {p.name: len(p.received) for p in players}
                     if options.continuous:
+                        audio_offset = time.monotonic() - alice.video_started
                         await options.pulse.play(actor.name, wav)
                     else:
                         session = await actor.listen()
@@ -219,14 +245,15 @@ async def run(options, report):
                     if not recognized:
                         raise AssertionError("game progressed without observed real STT")
                     for player in players:
-                        await wait_until(lambda p=player: p.briefing and p.briefing["stage"] == stage + (2 if actor is alice else 1), "updated private clues")
+                        await wait_until(lambda p=player: p.briefing and p.briefing["stage"] == min(stage + (2 if actor is alice else 1), 3), "updated private clues")
                     snapshots = [next(m["state"] for m in reversed(p.received[starts[p.name]:])
                                       if m.get("event", {}).get("type") == expected) for p in players]
                     assert snapshots[0] == snapshots[1], "public transition states diverged"
                     for player in players:
                         upstream_errors = [m["message"] for m in player.archived_messages + player.received if m.get("type") == "linx_error"]
                         assert not upstream_errors, upstream_errors
-                    report["turns"].append({"player": actor.name, "text": text, "stt": recognized, "expected": expected})
+                    report["turns"].append({"player": actor.name, "text": text, "stt": recognized, "expected": expected,
+                                            "wav": str(wav), "audio_offset": audio_offset if options.continuous else None})
                     await actor.page.screenshot(path=str(directory / f"stage-{stage + 1}-{actor.name}.png"))
                     print(f"PASS {actor.name}: {text} -> {expected}; STT={recognized}", flush=True)
 
@@ -246,6 +273,7 @@ async def run(options, report):
         finally:
             report["players"] = [{"name": p.name, "binary_frames": p.binary_frames,
                                   "sent_types": p.sent_types, "page_errors": p.errors,
+                                  "video_offset": p.video_started - alice.video_started if p.video_started and alice.video_started else None,
                                   "messages": p.archived_messages + p.received} for p in players]
             for player in players:
                 if player.page and not player.page.is_closed():
@@ -263,6 +291,7 @@ async def main():
     parser.add_argument("--insecure", action="store_true", help="allow self-signed HTTPS in this test only")
     parser.add_argument("--timeout", type=int, default=45)
     parser.add_argument("--continuous", action="store_true", help="Linux PulseAudio virtual microphones; keep both sessions open for the whole game")
+    parser.add_argument("--record-video", action="store_true", help="save both actual browser videos for demo recording")
     parser.add_argument("--output", type=Path, default=Path("src/game_backend/tools/artifacts/browser-voice"))
     options = parser.parse_args()
     options.base_url = options.base_url.rstrip("/")

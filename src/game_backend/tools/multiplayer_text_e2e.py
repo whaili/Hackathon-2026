@@ -140,10 +140,16 @@ async def run() -> dict[str, Any]:
             # The harness combines two independent observations. A production
             # AI player adapter must exchange them through dialogue, not peek
             # at the other player's trace.
+            if stage == 2:
+                await send_say(sockets, traces, "bob", "确认撤离", "choice_recorded")
+                await asyncio.gather(*(receive_until_type(sockets[p], traces[p], "private_briefing") for p in players))
+                await send_say(sockets, traces, "alice", "确认撤离", "game_won")
+                briefings = await asyncio.gather(*(receive_until_type(sockets[p], traces[p], "private_briefing") for p in players))
+                continue
             scene = briefings[0]["text"]
             target = re.search(r"安全符号是(.*?)。", briefings[1]["text"]).group(1)
             signals = re.search(re.escape(target) + r"对应(.*?)，也可以描述为(.*?)(?:；|。)", scene).groups()
-            await send_say(sockets, traces, "bob", f"授权{target}", "authorization_granted")
+            await send_say(sockets, traces, "bob", f"{'识破' if stage else '授权'}{target}", "authorization_granted")
             # Authorization also refreshes the private briefing.
             await asyncio.gather(*(receive_until_type(sockets[p], traces[p], "private_briefing") for p in players))
             forbidden = traces["alice"].messages[-2]["state"]["forbidden_words"]
@@ -154,7 +160,7 @@ async def run() -> dict[str, Any]:
         final_state = next(message["state"] for message in reversed(traces["alice"].messages) if "state" in message)
         if final_state.get("phase") != "won":
             raise AssertionError(f"expected a win, got {final_state}")
-        if final_state.get("completed_items") != ["接通能源", "辨认伪装", "共同点火"]:
+        if final_state.get("completed_items") != ["接通能源", "辨认伪装", "共同抉择"]:
             raise AssertionError(f"unexpected item order: {final_state.get('completed_items')}")
 
         all_events = traces["alice"].events

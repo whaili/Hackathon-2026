@@ -116,7 +116,7 @@ GAME_BASE_URL=https://10.210.34.33:18081 \
   python3 multiplayer_text_e2e.py --json
 ```
 
-脚本的程序断言包括：两个客户端每一步收到相同公共状态、两名玩家收到不同私有线索、根据当局线索完成三次授权和校准、最终事件为
+脚本的程序断言包括：两个客户端每一步收到相同公共状态、两名玩家收到不同私有线索、根据当局线索完成授权校准、识破伪装及共同抉择、最终事件为
 `game_won`。输出 JSON 中的 `event_types`、`final_state` 和 `action_history` 可以交给 AI
 评审器，评价协作是否自然、信息差是否有意义、是否出现重复操作或异常事件。AI 评审只负责体验
 层面的判断，状态转换、胜负和一致性必须由脚本断言。
@@ -188,6 +188,26 @@ python3 src/game_backend/tools/browser_voice_e2e.py --serve-local --continuous
 整局不重启浏览器、不更换麦克风流、不停止监听，并断言每人只出现一次 `connected` 和一次 `linx_ready`。
 不使用 Chromium 假设备、浏览器 API 覆盖或文字动作注入。两名玩家的扬声器输出与麦克风隔离，因此仍不覆盖真实声学回声。
 测试结束自动停止私有 PulseAudio 实例，不修改现有系统音频服务。故障日志保存在 `pulse.log`。
+
+持续模式还会同时播放两名玩家的准备发言，分别检查各自会话收到 STT，然后执行“授权/校准 → 识破/替代表达 → 双方确认撤离”。
+这覆盖双路并发识别，不代表已模拟真实环境的抢话礼仪或音箱回声。
+
+### 演示录制
+
+给持续模式添加 `--record-video`，并使用新的输出目录：
+
+```bash
+python3 src/game_backend/tools/browser_voice_e2e.py \
+  --base-url https://10.210.34.33:18081 --insecure --continuous --record-video \
+  --output src/game_backend/tools/artifacts/demo-run
+python3 src/game_backend/tools/make_voice_demo.py \
+  src/game_backend/tools/artifacts/demo-run/report.json
+```
+
+Playwright 录制组件可用 `python3 -m playwright install ffmpeg` 安装。
+`make_voice_demo.py` 把两名玩家的真实浏览器画面合成左右分屏 MP4，并按回放时间对齐合成麦克风音频。
+音轨来自实际测试输入，不是电脑扬声器录音；画面与 ASR/结局来自真实测试。完整 WebM、截图和 JSON 报告仍保留。
+建议演示按“邀请好友 → 两人不同线索 → 它学会你的表达 → 识破伪装 → 共同选择结局”的顺序讲述。
 
 ## 新功能的测试约定
 
