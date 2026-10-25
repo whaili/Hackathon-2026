@@ -18,6 +18,20 @@ class ServerStateMachineTests(unittest.TestCase):
         self.assertEqual(response.json()["state"]["mode"], "solo")
         self.assertEqual(response.json()["state"]["mode_title"], "单人挑战 · 静默协议")
 
+    def test_siren_room_accepts_audio_metrics(self) -> None:
+        with TestClient(app) as client:
+            room_id = client.post("/api/rooms", json={"mode": "siren"}).json()["room_id"]
+            with client.websocket_connect(f"/ws/{room_id}?player_id=voice") as socket:
+                socket.receive_json()
+                socket.receive_json()
+                socket.send_json({"type": "game_start"})
+                socket.receive_json()
+                socket.send_json({"type": "siren_metrics", "pitch": 0, "volume": 0.2, "tempo": 1.0})
+                self.assertEqual(socket.receive_json()["event"]["type"], "bar_completed")
+        task = rooms[room_id].timer_task
+        if task:
+            task.cancel()
+
     def test_websocket_text_drives_the_same_state_machine(self) -> None:
         with TestClient(app) as client:
             room_id = client.post("/api/rooms", json={"mode": "duo"}).json()["room_id"]
