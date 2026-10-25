@@ -19,6 +19,8 @@ jobs:
         run: python3 -m compileall -q src/game_backend
       - name: Build game backend image
         run: docker build --build-arg BASE_IMAGE=build-dev-env:candidate-tun-final -f deploy/Dockerfile -t dont-let-it-hear-game:ci .
+      - name: Run game and protocol regressions
+        run: docker run --rm dont-let-it-hear-game:ci python3 -m unittest discover -s game_backend/tests -v
 
   deploy:
     name: Deploy main
@@ -31,6 +33,7 @@ jobs:
       cancel-in-progress: false
     env:
       LINX_DEVICE_ID: ${{ secrets.LINX_DEVICE_ID }}
+      LINX_DEVICE_IDS: ${{ secrets.LINX_DEVICE_IDS }}
     steps:
       - uses: actions/checkout@v4
       - name: Deploy container

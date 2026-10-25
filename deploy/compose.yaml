@@ -9,5 +9,6 @@ services:
     restart: unless-stopped
     environment:
       LINX_DEVICE_ID: ${LINX_DEVICE_ID:?Set LINX_DEVICE_ID in deploy/.env}
+      LINX_DEVICE_IDS: ${LINX_DEVICE_IDS:-}
     ports:
       - "18080:8080"

@@ -561,7 +561,8 @@ def create_game(mode: str) -> GameEngine:
     if mode == "solo":
         return SoloChallengeState()
     if mode == "duo":
-        return GameState()
+        from .duo_chapter import DuoChapterState
+        return DuoChapterState()
     if mode in {"siren", "lullaby"}:
         return SirenLullabyState()
     raise ValueError(f"Unsupported game mode: {mode}")
