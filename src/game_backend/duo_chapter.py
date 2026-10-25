@@ -95,20 +95,21 @@ class DuoChapterState(GameState):
         if self.phase in {"won", "lost"}:
             text = "本章已结束。你们可以再次挑战，交换角色体验不同的线索。"
         elif self.stage_index == 2:
-            text = ("你掌握现场：两人都可以撤离，但携带档案会留下可追踪信号。"
-                    if role == "现场员" else "你掌握规则：两人须作出一致选择，舱门才会解锁。")
-            text += "交换意见后各自说‘确认撤离’或‘保留档案’。选择不同可重新协商。"
+            text = ("你的任务：现场员负责执行校准。两人都可以撤离，但携带档案会留下可追踪信号。"
+                    if role == "现场员" else "你的任务：监听员负责确认规则。两人须作出一致选择，舱门才会解锁。")
+            text += "\n先交换意见，再各自说‘确认撤离’或‘保留档案’。选择不同可重新协商。"
         elif self.puzzles and self.stage_index < 2:
             puzzle = self.puzzles[self.stage_index]
             if role == "现场员":
                 text = "；".join(f"{symbol}对应{signals[0]}，也可以描述为{signals[1]}"
                                 for symbol, signals in puzzle["mapping"].items())
-                text += "。请向同伴询问目标，再说‘校准’加对应特征。"
+                text = "你的任务：把同伴报出的符号翻译成声音特征。\n" + text
+                text += "。\n行动顺序：先问监听员目标符号，再说‘校准’加对应特征。"
             else:
                 verb = "识别伪装，安全符号是" if self.stage_index == 1 else "授权"
-                text = f"本阶段安全符号是{puzzle['target']}。请说‘{verb}{puzzle['target']}’，让同伴辨认对应特征。"
+                text = f"你的任务：报出你手里的安全符号，让现场员执行。\n本阶段安全符号是{puzzle['target']}。请说‘{verb}{puzzle['target']}’。"
                 if self.stage_index == 1:
-                    text += "频道里那个熟悉的命令来自监听者；不要照着重复。"
+                    text += "\n频道里那个熟悉的命令来自监听者；不要照着重复。"
         return {"type": "private_briefing", "role": role, "text": text, "stage": min(self.stage_index + 1, 3)}
 
     def process_utterance(self, player_id, text, source="stt"):
