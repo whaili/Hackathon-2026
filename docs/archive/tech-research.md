@@ -398,10 +398,10 @@ SSE 的存在本身不能证明平台支持跨会话通知的业务语义。因�
 
 ### 未注册 MAC 的 OTA 行为
 
-随机新 MAC `AA:BB:CC:99:88:77` 按官方完整示例发送 OTA，请求耗时 223.5 ms，HTTP 200；响应原文：
+随机测试 MAC 按官方完整示例发送 OTA，请求耗时约 223 ms，HTTP 200；响应中的激活码和设备标识已省略：
 
-```json
-{"server_time":{"timestamp":1792755281032,"timezone":"Asia/Shanghai","timezone_offset":480},"activation":{"code":"594022","message":"https://xrobo.qiniu.com\n594022","challenge":"AA:BB:CC:99:88:77"},"firmware":{"version":"1.0.0","url":"https://xrobo.qiniuapi.com/v1/ota/INVALID_FIRMWARE_FOR_TEST"},"websocket":{"url":"ws://xrobo-io.qiniuapi.com/v1/ws/"}}
+```text
+HTTP 200，返回激活码、挑战值、固件地址和 WebSocket 地址；本记录不保存原始响应。
 ```
 
 **未注册设备可以请求 OTA，但只拿到激活码和 WS 地址，没有 token。** 官方 WS 协议要求先注册或绑定智能体；

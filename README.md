@@ -18,7 +18,7 @@
 
 当前演示入口为 <https://10.210.34.33:18081/>。该地址使用自签名证书，首次访问需要在浏览器中手动继续访问；正式演示前仍应替换为受信任的稳定 HTTPS 域名。
 
-最终演示视频集中在 [demos/README.md](demos/README.md)：[单人](demo.mp4) 和 [双人](demos/duo.mp4)。
+最终演示视频集中在 [demos/README.md](demos/README.md)：[单人](demos/单人.mp4) 和 [双人](demos/双人.mp4)。
 
 新增功能先跑文字回归，再按 [双人真实浏览器语音测试](src/game_backend/tools/README.md#双人真实浏览器语音全链路测试)
 验证麦克风、灵矽 ASR 与页面结局；双人并发需配置两个不同预注册设备的 `LINX_DEVICE_IDS`。
