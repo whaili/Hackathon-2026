@@ -3,7 +3,7 @@
 《别让它听见》的浏览器 + 游戏后端 + 灵矽语音/MCP 接入的技术文档。目标是让任何人拉下代码后，
 不需要额外口头交接，就能完成编译、部署、开发、测试和端到端演示验证。
 
-玩法规格见 [docs/game-design.md](../../docs/game-design.md)；这里讲工程实现。当前已有可玩的单人
+玩法规格见 [docs/game-design.md](../../docs/game-design.md)，架构总览见 [docs/architecture.md](../../docs/architecture.md)；这里讲工程实现。当前已有可玩的单人
 “静默协议”挑战、持续 ASR 结算和事件驱动场景。产品主线是双人语音密室；双人私有信息频道、监听者利用对话
 制造反转已在“分离频道”序章中接入：现场员获得随机符号与脉冲映射，监听员获得目标符号；监听员授权后，现场员才能校准。
 首阶段说过的特征会被监听者学成禁语，后续需要使用替代表达。私有线索、邀请链接和结局已接入页面。
@@ -84,7 +84,7 @@ LINX_DEVICE_ID=<已预注册的灵矽设备 MAC> \
 没有 HTTPS，`navigator.mediaDevices.getUserMedia` 在非安全上下文下不可用，所以本地主要用来跑通房间逻辑；
 要测真实麦克风/灵矽持续监听，走下面的部署流程。
 
-`LINX_DEVICE_ID` 从哪来：参考 [docs/tech-research.md](../../docs/tech-research.md) 里"免硬件
+`LINX_DEVICE_ID` 从哪来：参考 [docs/archive/tech-research.md](../../docs/archive/tech-research.md) 里"免硬件
 开发方案"一节，在灵矽控制台手动预注册一个虚构 MAC 绑定到一个智能体，这个 MAC 就是
 `LINX_DEVICE_ID`。
 
